@@ -169,33 +169,38 @@ class TCAMINFO(ctypes.Structure):
 
         self.f_recv_stream = False
 
+        # Keep references to buffers allocated via ctypes to avoid GC
+        # cleaning them up while still in use by the SDK.
+        self._ir_image_buf = ctypes.create_string_buffer(
+            IRBUFSIZE * ctypes.sizeof(WORD)
+        )
         self.ir_data.ir_image = ctypes.cast(
-            ctypes.create_string_buffer(IRBUFSIZE * ctypes.sizeof(WORD)),
+            self._ir_image_buf,
             ctypes.POINTER(WORD),
         )
         self.ir_data.image_buffer_size = IRBUFSIZE
+        self._next_data_buf = ctypes.create_string_buffer(8192)
         self.ir_data.lpNextData = ctypes.cast(
-            ctypes.create_string_buffer(8192), ctypes.POINTER(BYTE)
+            self._next_data_buf, ctypes.POINTER(BYTE)
         )
 
-        self.p_ir_tmp_buf = ctypes.cast(
-            ctypes.create_string_buffer(IRBUFSIZE), ctypes.POINTER(BYTE)
+        self._tmp_buf = ctypes.create_string_buffer(IRBUFSIZE)
+        self.p_ir_tmp_buf = ctypes.cast(self._tmp_buf, ctypes.POINTER(BYTE))
+        self._img_buf = ctypes.create_string_buffer(IRBUFSIZE * 4)
+        self.p_ir_img_buf = ctypes.cast(self._img_buf, ctypes.POINTER(BYTE))
+        self._temp_buf = ctypes.create_string_buffer(
+            IRBUFSIZE * ctypes.sizeof(FLOAT)
         )
-        self.p_ir_img_buf = ctypes.cast(
-            ctypes.create_string_buffer(IRBUFSIZE * 4), ctypes.POINTER(BYTE)
-        )
-        self.p_ir_temp_buf = ctypes.cast(
-            ctypes.create_string_buffer(IRBUFSIZE * ctypes.sizeof(FLOAT)),
-            ctypes.POINTER(FLOAT),
-        )
+        self.p_ir_temp_buf = ctypes.cast(self._temp_buf, ctypes.POINTER(FLOAT))
 
         for i in range(MAX_PALETTE):
-            self.p_palette_lut[i][0] = ctypes.cast(
-                ctypes.create_string_buffer(PALETTE_SIZE), ctypes.POINTER(BYTE)
-            )
-            self.p_palette_lut[i][1] = ctypes.cast(
-                ctypes.create_string_buffer(PALETTE_SIZE), ctypes.POINTER(BYTE)
-            )
+            buf0 = ctypes.create_string_buffer(PALETTE_SIZE)
+            buf1 = ctypes.create_string_buffer(PALETTE_SIZE)
+            self.p_palette_lut[i][0] = ctypes.cast(buf0, ctypes.POINTER(BYTE))
+            self.p_palette_lut[i][1] = ctypes.cast(buf1, ctypes.POINTER(BYTE))
+            # store buffers to keep them alive
+            setattr(self, f"_palette_buf_{i}_0", buf0)
+            setattr(self, f"_palette_buf_{i}_1", buf1)
 
         self.reset_member()
         self.reset_ir_data()
@@ -206,9 +211,16 @@ class TCAMINFO(ctypes.Structure):
         self.p_ir_tmp_buf = None
         self.p_ir_img_buf = None
         self.p_ir_temp_buf = None
+        self._ir_image_buf = None
+        self._next_data_buf = None
+        self._tmp_buf = None
+        self._img_buf = None
+        self._temp_buf = None
         for i in range(MAX_PALETTE):
             self.p_palette_lut[i][0] = None
             self.p_palette_lut[i][1] = None
+            setattr(self, f"_palette_buf_{i}_0", None)
+            setattr(self, f"_palette_buf_{i}_1", None)
 
     def reset_member(self):
         self.p_owner = None
