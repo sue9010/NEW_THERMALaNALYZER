@@ -1,211 +1,189 @@
-import ctypes
-from ctypes import (
-    POINTER,
-    Structure,
-    c_char_p,
-    c_int,
-    c_short,
-    c_void_p,
-    c_uint,
-    c_ushort,
-    c_ubyte,
-    c_long,
-    c_float,
-    c_uint32,
-)
+import asyncio
+import socket
 import time
-import threading
-import queue
-
-# Constants from SDK
-AF_INET = 2
-SOCK_STREAM = 1
-IRF_NO_ERROR = 1
-
-# Message Type Enums
-_IRF_NONE = -1
-_IRF_ACK = 0
-_IRF_NAK = 1
-_IRF_ALIVE = 2
-_IRF_STREAM_ON = 3
-_IRF_STREAM_OFF = 4
-_IRF_STREAM_DATA = 5
-_IRF_REQ_CAM_DATA = 7
-_IRF_CAM_DATA = 8
-_IRF_SET_CAM_DATA = 10
-_IRF_SET_USER_PALETTE = 11
-_IRF_REQ_SYS_INFO = 12
-_IRF_SYS_INFO = 13
-
-
-# Structures from SDK
-class IRF_SAVEDATA_T(Structure):
-    _pack_ = 1
-    _fields_ = [
-        ("crc", c_uint32),
-        ("ver", c_ubyte),
-        ("sensor", c_ubyte),
-        ("tv", c_ubyte),
-        ("temp_mode", c_ubyte),
-        # The rest of the struct is complex. For now, we just pad it out.
-        # Total size is 512 bytes.
-        ("padding", c_ubyte * (512 - 8))
-    ]
-
-class IRF_IR_CAM_DATA_T(Structure):
-    _pack_ = 1
-    _fields_ = [
-        ("ir_image", POINTER(c_ushort)),
-        ("image_buffer_size", c_uint32),
-        ("lpNextData", POINTER(c_ubyte)),
-        ("dwSize", c_uint32),
-        ("dwPosition", c_uint32),
-        ("msg_type", c_int),
-        ("save_data", IRF_SAVEDATA_T),
-        ("fw_ver", c_uint32),
-        ("core_type", c_uint32),
-        ("h_res", c_ushort),
-        ("v_res", c_ushort),
-        ("PMSGTYPE", c_ushort),
-        ("RCODE", c_ushort),
-        ("reserved", c_uint32 * 10),
-    ]
+import numpy as np
+from new_sample.thermalcamera_lib.define_protocol import (
+    TPKT_Header,
+    TPKT_GetResolution,
+    TPKT_CameraSystemInfo,
+    TPKT_CameraEnv,
+    TPKT_RawDataTail,
+)
+from new_sample.thermalcamera_lib.define_enums import MESSAGE_TYPE
+from new_sample.thermalcamera_lib.define_constants import (
+    THERMAL_PACKET_ID,
+    THERMAL_PACKET_HEADER_SIZE,
+)
 
 class ThermalCam:
-    def __init__(self, dll_path="SDK/SDK/bin64/ThermalCamSDK_x64.dll"):
-        loader = getattr(ctypes, "WinDLL", ctypes.CDLL)
-        self.lib = loader(dll_path)
-        self.handle = c_void_p()
-        self.timer_id = c_void_p()
-        
-        self._define_sdk_functions()
+    def __init__(self, ip="192.168.0.101", port=15001):
+        self.ip = ip
+        self.port = port
+        self.reader = None
+        self.writer = None
+        self.is_connected = False
+        self.camera_config = None
+        self.system_info = None
+        self.image_dimensions = {"width": 0, "height": 0}
+        self.received_data = asyncio.Queue()
+        self.listener_task = None
 
-        self.message_queue = queue.Queue()
-        self.stop_event = threading.Event()
-        self.listen_thread = None
+    async def _listener(self):
+        try:
+            while self.is_connected:
+                header_data = await self.reader.readexactly(THERMAL_PACKET_HEADER_SIZE)
+                header = TPKT_Header.from_bytes(header_data)
 
-    def _define_sdk_functions(self):
-        self.lib.OpenConnect.argtypes = [POINTER(c_void_p), POINTER(c_void_p), c_char_p, c_char_p, c_int, c_int]
-        self.lib.OpenConnect.restype = c_short
-        self.lib.CloseConnect.argtypes = [POINTER(c_void_p), c_void_p]
-        self.lib.CloseConnect.restype = c_short
-        self.lib.SendCameraMessage.argtypes = [c_void_p, POINTER(c_void_p), c_int, c_ushort, c_ushort]
-        self.lib.SendCameraMessage.restype = c_short
-        self.lib.GetIRImages.argtypes = [c_void_p, POINTER(c_void_p), POINTER(IRF_IR_CAM_DATA_T)]
-        self.lib.GetIRImages.restype = c_short
+                if header.ID != THERMAL_PACKET_ID:
+                    print(f"Invalid packet ID: {header.ID}")
+                    continue
 
-    def _listen_thread_func(self):
-        """This function runs in a background thread and continuously polls for messages."""
-        image_x_size = 1024 
-        image_y_size = 768
-        ir_image_buffer = (c_ushort * (image_x_size * image_y_size))()
-        next_data_buffer = (c_ubyte * 8192)()
+                body_size = header.Length - THERMAL_PACKET_HEADER_SIZE
+                body_data = b''
+                if body_size > 0:
+                    body_data = await self.reader.readexactly(body_size)
+                
+                await self.received_data.put((header, body_data))
 
-        while not self.stop_event.is_set():
-            cam_data = IRF_IR_CAM_DATA_T()
-            cam_data.ir_image = ctypes.cast(ir_image_buffer, POINTER(c_ushort))
-            cam_data.lpNextData = ctypes.cast(next_data_buffer, POINTER(c_ubyte))
-            cam_data.image_buffer_size = image_x_size * image_y_size
+        except (asyncio.IncompleteReadError, ConnectionResetError) as e:
+            print(f"Connection lost: {e}")
+            self.is_connected = False
+        except Exception as e:
+            print(f"An error occurred in the listener: {e}")
+            self.is_connected = False
 
-            result = self.lib.GetIRImages(self.handle, ctypes.byref(self.timer_id), ctypes.byref(cam_data))
-            
-            if result != IRF_NO_ERROR:
-                time.sleep(0.5)
-                continue
+    async def connect(self):
+        try:
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.ip, self.port), timeout=5
+            )
+            self.is_connected = True
+            self.listener_task = asyncio.create_task(self._listener())
+            print(f"Connected to {self.ip}:{self.port}")
 
-            if cam_data.msg_type != _IRF_NONE:
-                new_cam_data = IRF_IR_CAM_DATA_T()
-                ctypes.pointer(new_cam_data)[0] = cam_data
-                self.message_queue.put(new_cam_data)
-            
-            time.sleep(0.05)
+            # --- Camera Initialization Sequence ---
+            print("Requesting Core Info...")
+            await self._send_message(MESSAGE_TYPE._IRF_REQ_CORE_INFO)
+            header, body = await self._wait_for_response(MESSAGE_TYPE._IRF_RES_CORE_INFO)
+            core_info = TPKT_GetResolution.from_bytes(body)
+            self.image_dimensions["width"] = core_info.h_res
+            self.image_dimensions["height"] = core_info.v_res
+            print(f"Received Core Info: {self.image_dimensions}")
 
-    def connect(self, ip="192.168.0.101", port=15001):
-        result = self.lib.OpenConnect(ctypes.byref(self.handle), ctypes.byref(self.timer_id), ip.encode("ascii"), str(port).encode("ascii"), AF_INET, SOCK_STREAM)
-        if result != IRF_NO_ERROR:
-            raise RuntimeError(f"OpenConnect failed with code {result}")
-        
-        self.stop_event.clear()
-        self.listen_thread = threading.Thread(target=self._listen_thread_func)
-        self.listen_thread.daemon = True
-        self.listen_thread.start()
-        print(f"Connected to camera and started listener thread. {ip}:{port}")
+            print("Requesting System Info...")
+            await self._send_message(MESSAGE_TYPE._IRF_REQ_SYS_INFO)
+            header, body = await self._wait_for_response(MESSAGE_TYPE._IRF_RES_SYS_INFO)
+            self.system_info = TPKT_CameraSystemInfo.from_bytes(body)
+            print("Received System Info.")
 
-    def disconnect(self):
-        if self.listen_thread and self.listen_thread.is_alive():
-            self.stop_event.set()
-            self.listen_thread.join(timeout=2)
-            print("Listener thread stopped.")
+            print("Requesting Camera Env...")
+            await self._send_message(MESSAGE_TYPE._IRF_REQ_CAM_ENV)
+            header, body = await self._wait_for_response(MESSAGE_TYPE._IRF_RES_CAM_ENV)
+            self.camera_config = TPKT_CameraEnv.from_bytes(body)
+            print("Received Camera Env.")
 
-        if self.handle:
-            self.lib.CloseConnect(ctypes.byref(self.handle), self.timer_id)
-            print("Disconnected")
+        except (asyncio.TimeoutError, ConnectionRefusedError) as e:
+            raise RuntimeError(f"Connection failed: {e}")
 
-    def _wait_for_message(self, target_msg_type, timeout=10):
+    async def disconnect(self):
+        if self.listener_task:
+            self.listener_task.cancel()
+        if self.writer:
+            self.writer.close()
+            await self.writer.wait_closed()
+        self.is_connected = False
+        print("Disconnected.")
+
+    async def _send_message(self, msg_type, body=b''):
+        header = TPKT_Header(Type=msg_type.value, Length=THERMAL_PACKET_HEADER_SIZE + len(body))
+        self.writer.write(header.to_bytes() + body)
+        await self.writer.drain()
+
+    async def _wait_for_response(self, target_msg_type, timeout=5):
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                cam_data = self.message_queue.get(timeout=1)
-                if cam_data.msg_type == target_msg_type:
-                    return cam_data
+                header, body = await asyncio.wait_for(self.received_data.get(), timeout=1)
+                if header.Type == target_msg_type.value:
+                    return header, body
                 else:
-                    print(f"Ignoring message type: {cam_data.msg_type}")
-            except queue.Empty:
+                    print(f"Ignoring message type: {header.Type}")
+            except asyncio.TimeoutError:
                 continue
-        return None
+        raise RuntimeError(f"Timed out waiting for message type {target_msg_type.name}")
 
     def get_firmware_version(self):
-        with self.message_queue.mutex:
-            self.message_queue.queue.clear()
-        result = self.lib.SendCameraMessage(self.handle, ctypes.byref(self.timer_id), _IRF_REQ_CAM_DATA, 0, 0)
-        if result != IRF_NO_ERROR:
-            raise RuntimeError(f"SendCameraMessage(_IRF_REQ_CAM_DATA) failed with code {result}")
-        cam_data = self._wait_for_message(_IRF_CAM_DATA)
-        if not cam_data:
-            raise RuntimeError("Did not receive CAM_DATA in time.")
-        result = self.lib.SendCameraMessage(self.handle, ctypes.byref(self.timer_id), _IRF_REQ_SYS_INFO, 0, 0)
-        if result != IRF_NO_ERROR:
-            raise RuntimeError(f"SendCameraMessage(_IRF_REQ_SYS_INFO) failed with code {result}")
-        sys_info_data = self._wait_for_message(_IRF_SYS_INFO)
-        if not sys_info_data:
-            raise RuntimeError("Failed to get firmware version in time.")
-        major = (sys_info_data.fw_ver >> 24) & 0xFF
-        minor = (sys_info_data.fw_ver >> 16) & 0xFF
-        patch = sys_info_data.fw_ver & 0xFFFF
+        if not self.system_info:
+            raise RuntimeError("System info not available.")
+        fw_ver = self.system_info.fw_ver
+        major = (fw_ver >> 24) & 0xFF
+        minor = (fw_ver >> 16) & 0xFF
+        patch = fw_ver & 0xFFFF
         return f"{major}.{minor}.{patch}"
 
     def get_camera_info(self):
-        with self.message_queue.mutex:
-            self.message_queue.queue.clear()
-        result = self.lib.SendCameraMessage(self.handle, ctypes.byref(self.timer_id), _IRF_REQ_CAM_DATA, 0, 0)
-        if result != IRF_NO_ERROR:
-            raise RuntimeError(f"SendCameraMessage(_IRF_REQ_CAM_DATA) failed with code {result}")
-        cam_data = self._wait_for_message(_IRF_CAM_DATA)
-        if not cam_data:
-            raise RuntimeError("Did not receive CAM_DATA in time.")
-        save_data = cam_data.save_data
+        if not self.camera_config:
+            raise RuntimeError("Camera config not available.")
+        
         sensor_map = {0x00: "CX320", 0x01: "CX640", 0x20: "CG QVGA", 0x21: "CG VGA"}
         temp_mode_map = {0: "Normal", 1: "High", 2: "Medical"}
+        
         info = {
-            "Setup Data Version": save_data.ver,
-            "Sensor Type": sensor_map.get(save_data.sensor, f"Unknown ({save_data.sensor})"),
-            "Temp Mode": temp_mode_map.get(save_data.temp_mode, f"Unknown ({save_data.temp_mode})")
+            "Setup Data Version": self.camera_config.ver,
+            "Sensor Type": sensor_map.get(self.camera_config.sensor, f"Unknown ({self.camera_config.sensor})"),
+            "Temp Mode": temp_mode_map.get(self.camera_config.temp_mode, f"Unknown ({self.camera_config.temp_mode})")
         }
         return info
 
-if __name__ == "__main__":
+    async def get_thermal_image(self):
+        print("\nAttempting to get thermal image...")
+        await self._send_message(MESSAGE_TYPE._IRF_STREAM_ON)
+        
+        header, body = await self._wait_for_response(MESSAGE_TYPE._IRF_STREAM_DATA)
+        
+        await self._send_message(MESSAGE_TYPE._IRF_STREAM_OFF)
+        print("Stream stopped.")
+
+        width = self.image_dimensions['width']
+        height = self.image_dimensions['height']
+        
+        # The body of STREAM_DATA contains the raw image data + tail
+        tail_size = TPKT_RawDataTail.get_size()
+        image_size = width * height * 2 # 16-bit data
+        
+        if len(body) < image_size:
+             print(f"Warning: Incomplete image frame received. Expected {image_size}, got {len(body)}")
+             return None, width, height
+
+        image_data = np.frombuffer(body[:image_size], dtype=np.uint16)
+        # You might need to reshape it: image_data = image_data.reshape((height, width))
+        
+        print(f"Successfully received thermal image data: {len(body)} bytes ({width}x{height})")
+        return image_data, width, height
+
+
+async def main():
     cam = ThermalCam()
     try:
-        cam.connect()
+        await cam.connect()
+        
         fw_version = cam.get_firmware_version()
-        print(f"Firmware Version: {fw_version}")
+        print(f"\nFirmware Version: {fw_version}")
         
         cam_info = cam.get_camera_info()
         print("\nCamera Info:")
         for key, value in cam_info.items():
             print(f"  {key}: {value}")
 
+        image_data, _, _ = await cam.get_thermal_image()
+        if image_data is not None:
+            # Further processing like saving or displaying the image can be done here
+            pass
+
     except RuntimeError as e:
         print(f"An error occurred: {e}")
     finally:
-        cam.disconnect()
+        await cam.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(main())
