@@ -3,6 +3,7 @@ import socket
 import time
 
 import numpy as np
+import cv2 # Add OpenCV import
 
 from new_sample.thermalcamera_lib.define_constants import (
     THERMAL_PACKET_HEADER_SIZE,
@@ -244,6 +245,17 @@ class ThermalCam:
         converted_data = self.temp_lookup_table[raw_data.astype(np.uint16)]
         return converted_data
 
+    def _convert_raw_to_grayscale(self, raw_data: np.ndarray) -> np.ndarray:
+        # Normalize the raw 16-bit data to 0-255 for 8-bit grayscale image
+        # Find the min and max values in the raw data
+        min_val = raw_data.min()
+        max_val = raw_data.max()
+
+        # Use np.interp for linear interpolation to scale values to 0-255
+        # np.interp(x, (x_min, x_max), (out_min, out_max))
+        grayscale_image = np.interp(raw_data, (min_val, max_val), (0, 255)).astype(np.uint8)
+        return grayscale_image
+
     async def get_thermal_image(self):
         print("\nAttempting to get thermal image...")
         await self._send_message(MESSAGE_TYPE._IRF_STREAM_ON)
@@ -317,7 +329,13 @@ async def main():
                 delimiter=",",
                 fmt="%.2f",  # Format as float with 2 decimal places
             )
-            print(f"Raw thermal data saved to {csv_filename_celsius}")
+            print(f"Celsius thermal data saved to {csv_filename_celsius}")
+
+            # Convert raw data to grayscale image and save
+            grayscale_image = cam._convert_raw_to_grayscale(raw_image_data)
+            grayscale_filename = "thermal_image_grayscale.png"
+            cv2.imwrite(grayscale_filename, grayscale_image)
+            print(f"Grayscale image saved to {grayscale_filename}")
 
     except RuntimeError as e:
         print(f"An error occurred: {e}")
