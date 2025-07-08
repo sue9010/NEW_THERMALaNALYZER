@@ -135,11 +135,6 @@ class ThermalCameraSDK:
             return -1
         return self.thermal_sdk.GetIRImages(h_sdk.value, keep_alive_id_ptr, ir_data_ptr)
 
-    def get_image_lut(self, p_palette_lut, lp, is_invert):
-        if not self.thermal_sdk:
-            return -1
-        return self.thermal_sdk.GetImageLUT(p_palette_lut, lp, is_invert)
-
     def get_image_cg(self, p_ir_tmp_buf, h_sdk, size, level_ptr, span_ptr, agc_ctrl_ptr):
         if not self.thermal_sdk:
             return -1
