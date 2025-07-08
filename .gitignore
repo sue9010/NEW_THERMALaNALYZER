@@ -1,0 +1,5 @@
+# Visual Studio 작업 공간
+.vs/
+
+# Python 가상환경
+venv/

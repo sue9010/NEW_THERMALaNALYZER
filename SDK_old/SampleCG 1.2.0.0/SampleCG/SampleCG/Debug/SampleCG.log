@@ -1,0 +1,2 @@
+﻿  stdafx.cpp
+\\cox_biz\연구소 파일 전달\SDK and ThermalTools\00. Backup\20181227\SampleCG 1.2.0.0\SampleCG\SampleCG\stdafx.h(56,10): fatal error C1083: 포함 파일을 열 수 없습니다. 'dns_sd.h': No such file or directory

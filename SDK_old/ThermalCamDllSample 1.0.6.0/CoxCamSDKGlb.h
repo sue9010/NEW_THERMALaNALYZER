@@ -1,0 +1,38 @@
+#include "ThermalCamDllSample.h"
+
+extern "C" __declspec(dllimport) short PASCAL GetIRHeader(HANDLE handle, IRF_IR_FILE_HEADER_T* header, unsigned long *curPos);
+extern "C" __declspec(dllimport) short PASCAL GetImageLUT(unsigned char *palette, IRF_PALETTE_TYPE_T paletteType, bool bInvert);
+extern "C" __declspec(dllimport) short PASCAL GetImage(unsigned char *image, unsigned short *ir_image, long image_size, float *tempLUT, float *level, float *span, IRF_AUTO_RANGE_METHOD_T *method);
+extern "C" __declspec(dllimport) short PASCAL GetIRHistogram(unsigned int *hist, unsigned short *ir_image, long image_size);
+extern "C" __declspec(dllimport) short PASCAL GetGrayToPaletteImage(unsigned char *from_image, void* to_image, unsigned short width, unsigned short height, unsigned char *palette, int BitsPixel, bool bMirror, bool bFlip);
+extern "C" __declspec(dllimport) short PASCAL GetTempRangeValue(IRF_DYNAMIC_RANGE_T tempMode, short *min, short *max);
+extern "C" __declspec(dllimport) float PASCAL ConvertFahToCels(float temp);
+extern "C" __declspec(dllimport) float PASCAL ConvertCelsToFah(float temp);
+extern "C" __declspec(dllimport) float PASCAL ConvertKelvToCels(float temp);
+extern "C" __declspec(dllimport) float PASCAL ConvertKelvToFah(float temp);
+extern "C" __declspec(dllimport) float PASCAL ConvertCelToKel(float temp);
+extern "C" __declspec(dllimport) float PASCAL ConvertFahToKel(float temp);
+extern "C" __declspec(dllimport) void PASCAL BilateralFilter(unsigned char *image, unsigned short width, unsigned short height, float sigD, float sigR, int w);
+extern "C" __declspec(dllimport) void PASCAL GetGaussianKernel(int *kernel, int *mult, int sz);
+extern "C" __declspec(dllimport) short PASCAL FastGaussianBlur(BYTE *img, int iw, int ih, int *Gkernel, int *Gmult, int radius);
+extern "C" __declspec(dllimport) short PASCAL FastStackBlur(BYTE* img, int w, int h, int radius);
+extern "C" __declspec(dllimport) short PASCAL BoxBlur(BYTE *src, int src_w, int src_h, int sz);
+extern "C" __declspec(dllimport) short PASCAL ApplyImageFilter(unsigned char *image, unsigned short width, unsigned short height, IRF_IMAGE_FILTER_T filter);
+extern "C" __declspec(dllimport) short PASCAL LoadIRImage(HANDLE *handle, char *FileName, unsigned long *totSize);
+extern "C" __declspec(dllimport) short PASCAL GetIRImageFromStream(HANDLE handle, unsigned short* ir_image, long image_size, unsigned long totStreamSize, unsigned long *curPos, int* gap_time, bool bLoop);
+extern "C" __declspec(dllimport) short PASCAL GetRevIRImageFromStream(HANDLE handle, unsigned short* ir_image, long image_size, unsigned long *curPos, int* gap_time);
+extern "C" __declspec(dllimport) short PASCAL CloseIRStream(HANDLE handle);
+extern "C" __declspec(dllimport) short PASCAL SaveIRImage(HANDLE *handle, char* filename, IRF_IR_FILE_HEADER_T *pHeader);
+extern "C" __declspec(dllimport) short PASCAL SetIRImageToStream(HANDLE handle, unsigned short* ir_image, long image_size, int millisecond, short *frameCnt);
+extern "C" __declspec(dllimport) void PASCAL DrawColorBar(HWND hWnd, HDC hDC, unsigned char* palette, float level, float span, IRF_TEMP_MODE_T tempUnit, bool bUpdateOnlyTickArea);
+extern "C" __declspec(dllimport) short PASCAL GetIRImages(HANDLE handle, UINT *pTimerID, IRF_IR_CAM_DATA_T* cam_data);
+extern "C" __declspec(dllimport) short PASCAL OpenConnect(HANDLE *pHandle, UINT *pTimerID, LPCTSTR strDestination, LPCTSTR strServiceName, int nProtocol, int nType);
+extern "C" __declspec(dllimport) short PASCAL CloseConnect(HANDLE *handle, UINT timerID);
+extern "C" __declspec(dllimport) short PASCAL SendCameraMessage(HANDLE handle, UINT *pTimerID, IRF_MESSAGE_TYPE_T type, unsigned short PMSGTYPE, unsigned short RCODE);
+extern "C" __declspec(dllimport) short PASCAL GetTempMapTable(float* tempLUT, IRF_DYNAMIC_RANGE_T tempMode);
+extern "C" __declspec(dllimport) float PASCAL GetCorrectedTemp(float *tempLUT, IRF_TEMP_CORRECTION_PAR_T corrPara, unsigned short engineOut);
+extern "C" __declspec(dllimport) float PASCAL GetPointTemp(unsigned short *ir_image, IRF_IMAGE_INFO_T image_info, float *tempLUT, IRF_TEMP_CORRECTION_PAR_T corrPara, POINT pt);
+extern "C" __declspec(dllimport) short PASCAL GetROITemp(unsigned short *ir_image, IRF_IMAGE_INFO_T image_info, float *tempLUT, IRF_TEMP_CORRECTION_PAR_T corrPara, RECT roi, IRF_NUMERIC_INFO_T *numInfo, POINT *min_pt, POINT *max_pt);
+extern "C" __declspec(dllimport) short PASCAL SearchCamera(HANDLE handle, LPCTSTR strDestination, IRF_CAMERA_POSITION_T *position, bool bSendSearchSignal);
+extern "C" __declspec(dllimport) void PASCAL DrawMinMaxPos(HDC hDC, POINT minP, POINT maxP, int size);
+extern "C" __declspec(dllimport) short PASCAL ApplyColorImageFilter(void* image, unsigned short width, unsigned short height, IRF_IMAGE_FILTER_T filter, int bitPixel);
