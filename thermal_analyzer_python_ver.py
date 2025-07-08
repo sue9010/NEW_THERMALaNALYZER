@@ -58,10 +58,12 @@ class POINT(ctypes.Structure):
 
 
 class IRF_IMAGE_INFO_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [("xSize", WORD), ("ySize", WORD)]
 
 
 class IRF_TEMP_CORRECTION_PAR_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("emissivity", FLOAT),
         ("atmTemp", FLOAT),
@@ -71,6 +73,7 @@ class IRF_TEMP_CORRECTION_PAR_T(ctypes.Structure):
 
 
 class IRF_SAVEDATA_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("reserved1", BYTE * 128),
         ("reserved2", BYTE * 256),
@@ -79,6 +82,7 @@ class IRF_SAVEDATA_T(ctypes.Structure):
 
 
 class IRF_AUTO_RANGE_METHOD_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("autoScale", INT),
         ("inputMethod", INT),
@@ -95,6 +99,7 @@ class IRF_AUTO_RANGE_METHOD_T(ctypes.Structure):
 
 
 class IRF_IR_CAM_DATA_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("ir_image", ctypes.POINTER(WORD)),
         ("image_buffer_size", DWORD),
