@@ -396,14 +396,16 @@ def DoRecvNAK(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
 def DoRecvCamData(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
     p_cfg_data = tcam_info.ir_data.save_data
 
-    if p_cfg_data.reserved1[1] == QVGA_ID:
+    # Sensor type is stored after the 4-byte CRC and version field.
+    sensor_id = p_cfg_data.reserved1[5]
+    if sensor_id == QVGA_ID:
         tcam_info.ir_size.xSize = 384
         tcam_info.ir_size.ySize = 288
-    elif p_cfg_data.reserved1[1] == VGA_ID:
+    elif sensor_id == VGA_ID:
         tcam_info.ir_size.xSize = 640
         tcam_info.ir_size.ySize = 480
     else:
-        print("Invalid sensor type.", flush=True)
+        print(f"Invalid sensor type ({sensor_id}).", flush=True)
         return
 
     for lp in range(MAX_PALETTE):
