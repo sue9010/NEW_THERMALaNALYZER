@@ -650,11 +650,23 @@ if __name__ == "__main__":
                     flush=True,
                 )
 
+                # Request camera configuration and start streaming
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_REQ_CAM_DATA, sdk_instance=sdk_instance
+                )
+                time.sleep(0.5)
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_STREAM_ON, sdk_instance=sdk_instance
+                )
+
                 start_time = time.time()
                 while time.time() - start_time < 15:
                     time.sleep(1)
 
                 print("Time elapsed. Disconnecting...", flush=True)
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_STREAM_OFF, sdk_instance=sdk_instance
+                )
                 DisconnectCamera(tcam_info_instance, sdk_instance)
             else:
                 print("Connection failed. Please check camera IP/port and connection.", flush=True)
