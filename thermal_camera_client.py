@@ -32,6 +32,8 @@ class ThermalCam:
         self.received_data = asyncio.Queue()
         self.listener_task = None
         self.temp_lookup_table = None  # Initialize temp_lookup_table
+        self.canny_threshold1 = 50
+        self.canny_threshold2 = 150
 
     async def _listener(self):
         try:
@@ -270,7 +272,9 @@ class ThermalCam:
 
         # Apply Canny edge detection
         # Thresholds (50, 150) might need tuning based on image characteristics
-        edges = cv2.Canny(normalized_celsius, 50, 150)
+        edges = cv2.Canny(
+            normalized_celsius, self.canny_threshold1, self.canny_threshold2
+        )
 
         # Create a 3-channel image from the normalized grayscale image to draw colored edges
         colored_image = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
@@ -280,9 +284,9 @@ class ThermalCam:
             edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        # Draw contours (edges) on the colored image with green color and 3px thickness
-        # (0, 255, 0) is BGR for green
-        cv2.drawContours(colored_image, contours, -1, (0, 255, 0), 1)
+        # Draw contours (edges) on the colored image with white color and 3px thickness
+        # (255, 255, 255) is BGR for white
+        cv2.drawContours(colored_image, contours, -1, (255, 255, 255), 1)
 
         return colored_image
 

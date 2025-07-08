@@ -2,7 +2,7 @@ import sys
 import asyncio
 import numpy as np
 import cv2
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpinBox
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer
 from qasync import QEventLoop, asyncSlot
@@ -13,7 +13,7 @@ class ThermalViewerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Thermal Camera Viewer")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 800, 700)
 
         self.thermal_cam = ThermalCam() # Initialize ThermalCam client
         self.frame_queue = asyncio.Queue() # Queue for receiving frames from camera client
@@ -34,6 +34,43 @@ class ThermalViewerApp(QMainWindow):
         self.image_label.setFixedSize(640, 480) # Placeholder size
         self.image_label.setStyleSheet("background-color: black; color: white;")
         main_layout.addWidget(self.image_label)
+
+        # Canny Edge Controls
+        edge_layout = QHBoxLayout()
+        
+        # Threshold 1
+        t1_layout = QVBoxLayout()
+        self.t1_label = QLabel("Threshold 1: 50")
+        t1_layout.addWidget(self.t1_label)
+        self.t1_slider = QSlider(Qt.Horizontal)
+        self.t1_slider.setRange(0, 500)
+        self.t1_slider.setValue(50)
+        self.t1_slider.valueChanged.connect(self.update_canny_t1)
+        t1_layout.addWidget(self.t1_slider)
+        self.t1_spinbox = QSpinBox()
+        self.t1_spinbox.setRange(0, 500)
+        self.t1_spinbox.setValue(50)
+        self.t1_spinbox.valueChanged.connect(self.update_canny_t1)
+        t1_layout.addWidget(self.t1_spinbox)
+        edge_layout.addLayout(t1_layout)
+
+        # Threshold 2
+        t2_layout = QVBoxLayout()
+        self.t2_label = QLabel("Threshold 2: 150")
+        t2_layout.addWidget(self.t2_label)
+        self.t2_slider = QSlider(Qt.Horizontal)
+        self.t2_slider.setRange(0, 500)
+        self.t2_slider.setValue(150)
+        self.t2_slider.valueChanged.connect(self.update_canny_t2)
+        t2_layout.addWidget(self.t2_slider)
+        self.t2_spinbox = QSpinBox()
+        self.t2_spinbox.setRange(0, 500)
+        self.t2_spinbox.setValue(150)
+        self.t2_spinbox.valueChanged.connect(self.update_canny_t2)
+        t2_layout.addWidget(self.t2_spinbox)
+        edge_layout.addLayout(t2_layout)
+
+        main_layout.addLayout(edge_layout)
 
         # Control buttons
         control_layout = QHBoxLayout()
@@ -62,6 +99,22 @@ class ThermalViewerApp(QMainWindow):
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_image_display)
         self.update_timer.start(30) # Update every 30ms (approx 33 FPS)
+
+    def update_canny_t1(self, value):
+        self.thermal_cam.canny_threshold1 = value
+        self.t1_label.setText(f"Threshold 1: {value}")
+        if self.t1_slider.value() != value:
+            self.t1_slider.setValue(value)
+        if self.t1_spinbox.value() != value:
+            self.t1_spinbox.setValue(value)
+
+    def update_canny_t2(self, value):
+        self.thermal_cam.canny_threshold2 = value
+        self.t2_label.setText(f"Threshold 2: {value}")
+        if self.t2_slider.value() != value:
+            self.t2_slider.setValue(value)
+        if self.t2_spinbox.value() != value:
+            self.t2_spinbox.setValue(value)
 
     @asyncSlot()
     async def connect_camera(self):
@@ -133,7 +186,6 @@ class ThermalViewerApp(QMainWindow):
         try:
             # Try to get a frame from the queue without blocking
             raw_frame = self.frame_queue.get_nowait()
-            print(f"[UI Update] Received raw frame. Shape: {raw_frame.shape}, Dtype: {raw_frame.dtype}")
             
             # Convert raw data to Celsius
             celsius_image = self.thermal_cam._convert_raw_to_celsius(raw_frame)
@@ -149,10 +201,8 @@ class ThermalViewerApp(QMainWindow):
             # Scale QImage to fit QLabel and display
             pixmap = QPixmap.fromImage(q_image)
             self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            print("[UI Update] Edged image displayed.")
 
         except asyncio.QueueEmpty:
-            # print("[UI Update] No new frame yet.") # Too noisy
             pass # No new frame yet
         except Exception as e:
             print(f"Error updating image display: {e}")
