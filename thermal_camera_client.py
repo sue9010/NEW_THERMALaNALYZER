@@ -318,68 +318,38 @@ class ThermalCam:
         )
         return raw_image_data, width, height
 
+    async def start_stream_continuous(self, frame_queue: asyncio.Queue):
+        print("\nStarting continuous thermal image stream...")
+        await self._send_message(MESSAGE_TYPE._IRF_STREAM_ON)
 
-async def main():
-    cam = ThermalCam()
-    try:
-        await cam.connect()
+        try:
+            while self.is_connected:
+                header, body = await self._wait_for_response(
+                    MESSAGE_TYPE._IRF_STREAM_DATA
+                )
 
-        fw_version = cam.get_firmware_version()
-        print(f"\nFirmware Version: {fw_version}")
+                width = self.image_dimensions["width"]
+                height = self.image_dimensions["height"]
 
-        cam_info = cam.get_camera_info()
-        print("\nCamera Info:")
-        for key, value in cam_info.items():
-            print(f"  {key}: {value}")
+                image_size = width * height * 2  # 16-bit data
 
-        raw_image_data, img_width, img_height = await cam.get_thermal_image()
-        if raw_image_data is not None:
-            print(f"\nRaw Image Data Details:")
-            print(f"  Type: {type(raw_image_data)}")
-            print(f"  Shape: {raw_image_data.shape}")
-            print(f"  Dtype: {raw_image_data.dtype}")
-            print(f"  Min Value: {raw_image_data.min()}")
-            print(f"  Max Value: {raw_image_data.max()}")
-            print(f"  First 10 values: {raw_image_data.flatten()[:10]}")
+                if len(body) < image_size:
+                    print(
+                        f"Warning: Incomplete image frame received. Expected {image_size}, got {len(body)}"
+                    )
+                    continue
 
-            # Convert raw data to Celsius
-            celsius_image_data = cam._convert_raw_to_celsius(raw_image_data)
+                raw_image_data = np.frombuffer(
+                    body[:image_size], dtype=np.uint16
+                ).reshape(height, width)
 
-            print(f"\nCelsius Image Data Details:")
-            print(f"  Type: {type(celsius_image_data)}")
-            print(f"  Shape: {celsius_image_data.shape}")
-            print(f"  Dtype: {celsius_image_data.dtype}")
-            print(f"  Min Value: {celsius_image_data.min():.2f}°C")
-            print(f"  Max Value: {celsius_image_data.max():.2f}°C")
-            print(f"  First 10 values: {celsius_image_data.flatten()[:10]}")
+                # Put the raw image data into the queue for the UI to process
+                await frame_queue.put(raw_image_data)
 
-            # Save Celsius thermal data to a CSV file
-            csv_filename_celsius = "thermal_image_celsius.csv"
-            np.savetxt(
-                csv_filename_celsius,
-                celsius_image_data,
-                delimiter=",",
-                fmt="%.2f",  # Format as float with 2 decimal places
-            )
-            print(f"Celsius thermal data saved to {csv_filename_celsius}")
-
-            # Convert raw data to grayscale image and save
-            grayscale_image = cam._convert_raw_to_grayscale(raw_image_data)
-            grayscale_filename = "thermal_image_grayscale.png"
-            cv2.imwrite(grayscale_filename, grayscale_image)
-            print(f"Grayscale image saved to {grayscale_filename}")
-
-            # Draw edges on the Celsius image and save
-            edged_image = cam._draw_edges_on_image(celsius_image_data)
-            edged_filename = "thermal_image_edges.png"
-            cv2.imwrite(edged_filename, edged_image)
-            print(f"Edged image saved to {edged_filename}")
-
-    except RuntimeError as e:
-        print(f"An error occurred: {e}")
-    finally:
-        await cam.disconnect()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        except asyncio.CancelledError:
+            print("Continuous stream cancelled.")
+        except Exception as e:
+            print(f"Error during continuous stream: {e}")
+        finally:
+            await self._send_message(MESSAGE_TYPE._IRF_STREAM_OFF)
+            print("Continuous stream stopped.")
