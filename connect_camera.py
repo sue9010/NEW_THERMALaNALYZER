@@ -2,8 +2,8 @@ import asyncio
 import socket
 import time
 
+import cv2  # Add OpenCV import
 import numpy as np
-import cv2 # Add OpenCV import
 
 from new_sample.thermalcamera_lib.define_constants import (
     THERMAL_PACKET_HEADER_SIZE,
@@ -31,7 +31,7 @@ class ThermalCam:
         self.image_dimensions = {"width": 0, "height": 0}
         self.received_data = asyncio.Queue()
         self.listener_task = None
-        self.temp_lookup_table = None # Initialize temp_lookup_table
+        self.temp_lookup_table = None  # Initialize temp_lookup_table
 
     async def _listener(self):
         try:
@@ -153,52 +153,54 @@ class ThermalCam:
 
     def _create_temp_lookup_table(self):
         if not self.camera_config:
-            raise RuntimeError("Camera config not available for temperature lookup table.")
+            raise RuntimeError(
+                "Camera config not available for temperature lookup table."
+            )
 
         # Assuming TMODE_NORMAL is the default or desired mode for now
         # You might need to select the correct mode based on self.camera_config.temp_mode
         # For simplicity, let's use the first available measurement level/temp range
-        
+
         # Find the index for TMODE_NORMAL (0) in the support_temp_mode bitmask
         # This part is a simplification. A robust solution would iterate through
         # supported modes and pick the one matching camera_config.temp_mode
-        
+
         # For now, let's assume the first entry in meas_level and meas_temp corresponds to the active temp_mode
         # This needs to be verified against the actual camera behavior and SDK documentation
-        
+
         # Based on define_protocol.py, meas_level and meas_temp are lists of lists.
         # Let's assume index 0 corresponds to the default/normal mode.
-        
+
         # Find the actual index based on self.camera_config.temp_mode
         temp_mode_value = self.camera_config.temp_mode
-        
+
         # This part is a placeholder. The actual mapping from temp_mode_value to
         # the index in meas_level/meas_temp might be more complex (e.g., bitmask checking).
         # For now, we'll use a direct mapping if possible, or default to 0.
-        
+
         # A more robust way would be to iterate through the supported modes
         # and find the matching one. For this example, we'll assume the first entry
         # in meas_level and meas_temp is the one we need.
-        
+
         # In the senior engineer's code, it iterates through `THERMAL_TEMP_MODE_COUNT`
         # and checks `support_mask & (0x0001 << i)`.
         # Let's simplify and just use the first entry for now, as a starting point.
-        
+
         # This is a critical assumption and might need adjustment based on camera behavior.
-        
+
         # Simplified approach: directly use the first entry for min/max level and temp
         # This assumes meas_level[0] and meas_temp[0] are relevant for the current temp_mode
-        
+
         # The senior engineer's code has a more complex `create_temp_lut` function.
         # We'll try to replicate the core logic here.
-        
+
         # From define_protocol.py, TPKT_CameraEnv has:
         # meas_level: List[List[int]] = field(default_factory=lambda: [[0, 0], [0, 0]], metadata={'ctype': ('uint16_t', 2, 2)})
         # meas_temp: List[List[int]] = field(default_factory=lambda: [[0, 0], [0, 0]], metadata={'ctype': ('int16_t', 2, 2)})
-        
+
         # Let's assume the first entry (index 0) in these lists corresponds to the active temperature mode.
         # This is a simplification and might need to be adjusted if the camera uses other indices.
-        
+
         min_lvl = self.camera_config.meas_level[0][0]
         max_lvl = self.camera_config.meas_level[0][1]
         min_temp_raw = self.camera_config.meas_temp[0][0]
@@ -210,36 +212,38 @@ class ThermalCam:
 
         # Create a linear interpolation lookup table
         # The lookup table should map raw level values (uint16) to Celsius temperatures (float)
-        
+
         # Ensure the range is valid
         if max_lvl <= min_lvl:
             raise ValueError("Invalid level range for temperature conversion.")
-        
+
         # Create an array for the lookup table, covering the full uint16 range
         # Initialize with a default value (e.g., NaN or a very low/high temp)
         self.temp_lookup_table = np.full(65536, np.nan, dtype=np.float32)
-        
+
         # Populate the lookup table for the valid level range
         # np.linspace creates evenly spaced numbers over a specified interval.
         # The number of samples is (max_lvl - min_lvl + 1) to include both min and max levels.
         levels = np.arange(min_lvl, max_lvl + 1)
         temperatures = np.linspace(min_temp_celsius, max_temp_celsius, len(levels))
-        
+
         # Assign the calculated temperatures to the corresponding levels in the lookup table
         self.temp_lookup_table[levels] = temperatures
-        
+
         # Handle values outside the defined range:
         # Values below min_lvl can be set to min_temp_celsius
         self.temp_lookup_table[:min_lvl] = min_temp_celsius
         # Values above max_lvl can be set to max_temp_celsius
-        self.temp_lookup_table[max_lvl + 1:] = max_temp_celsius
-        
-        print(f"Temperature lookup table created. Range: {min_lvl}-{max_lvl} levels -> {min_temp_celsius:.2f}-{max_temp_celsius:.2f}°C")
+        self.temp_lookup_table[max_lvl + 1 :] = max_temp_celsius
+
+        print(
+            f"Temperature lookup table created. Range: {min_lvl}-{max_lvl} levels -> {min_temp_celsius:.2f}-{max_temp_celsius:.2f}°C"
+        )
 
     def _convert_raw_to_celsius(self, raw_data: np.ndarray) -> np.ndarray:
         if self.temp_lookup_table is None:
-            self._create_temp_lookup_table() # Create if not already created
-        
+            self._create_temp_lookup_table()  # Create if not already created
+
         # Use the lookup table to convert raw data to Celsius
         # Ensure raw_data is within the valid uint16 range before lookup
         converted_data = self.temp_lookup_table[raw_data.astype(np.uint16)]
@@ -253,8 +257,34 @@ class ThermalCam:
 
         # Use np.interp for linear interpolation to scale values to 0-255
         # np.interp(x, (x_min, x_max), (out_min, out_max))
-        grayscale_image = np.interp(raw_data, (min_val, max_val), (0, 255)).astype(np.uint8)
+        grayscale_image = np.interp(raw_data, (min_val, max_val), (0, 255)).astype(
+            np.uint8
+        )
         return grayscale_image
+
+    def _draw_edges_on_image(self, celsius_data: np.ndarray) -> np.ndarray:
+        # Normalize Celsius data to 0-255 for Canny edge detection
+        normalized_celsius = cv2.normalize(
+            celsius_data, None, 0, 255, cv2.NORM_MINMAX
+        ).astype(np.uint8)
+
+        # Apply Canny edge detection
+        # Thresholds (50, 150) might need tuning based on image characteristics
+        edges = cv2.Canny(normalized_celsius, 50, 150)
+
+        # Create a 3-channel image from the normalized grayscale image to draw colored edges
+        colored_image = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+
+        # Find contours from the edges
+        contours, _ = cv2.findContours(
+            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        # Draw contours (edges) on the colored image with green color and 3px thickness
+        # (0, 255, 0) is BGR for green
+        cv2.drawContours(colored_image, contours, -1, (0, 255, 0), 1)
+
+        return colored_image
 
     async def get_thermal_image(self):
         print("\nAttempting to get thermal image...")
@@ -279,8 +309,10 @@ class ThermalCam:
             return None, width, height
 
         # Extract raw image data
-        raw_image_data = np.frombuffer(body[:image_size], dtype=np.uint16).reshape(height, width)
-        
+        raw_image_data = np.frombuffer(body[:image_size], dtype=np.uint16).reshape(
+            height, width
+        )
+
         print(
             f"Successfully received thermal image data: {len(body)} bytes ({width}x{height})"
         )
@@ -312,7 +344,7 @@ async def main():
 
             # Convert raw data to Celsius
             celsius_image_data = cam._convert_raw_to_celsius(raw_image_data)
-            
+
             print(f"\nCelsius Image Data Details:")
             print(f"  Type: {type(celsius_image_data)}")
             print(f"  Shape: {celsius_image_data.shape}")
@@ -336,6 +368,12 @@ async def main():
             grayscale_filename = "thermal_image_grayscale.png"
             cv2.imwrite(grayscale_filename, grayscale_image)
             print(f"Grayscale image saved to {grayscale_filename}")
+
+            # Draw edges on the Celsius image and save
+            edged_image = cam._draw_edges_on_image(celsius_image_data)
+            edged_filename = "thermal_image_edges.png"
+            cv2.imwrite(edged_filename, edged_image)
+            print(f"Edged image saved to {edged_filename}")
 
     except RuntimeError as e:
         print(f"An error occurred: {e}")
