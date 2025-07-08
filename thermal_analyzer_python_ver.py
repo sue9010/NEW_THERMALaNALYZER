@@ -2,6 +2,9 @@ import ctypes
 import socket
 import threading
 import time
+import argparse
+import configparser
+import os
 
 import numpy as np
 
@@ -38,6 +41,11 @@ _IRF_REQ_TEMP_TABLE = 19
 SAVEDATA_VERSION = 0x21
 QVGA_ID = 0x20
 VGA_ID = 0x21
+
+# --- Default configuration values ---
+DEFAULT_DLL_PATH = r"E:/Coding_practice/new_ThermalAnalyzer/SDK/SDK/bin64/ThermalCamSDK_x64_D.dll"
+DEFAULT_IP_ADDRESS = "192.168.0.101"
+DEFAULT_PORT = 15001
 
 # --- Basic ctypes types ---
 BYTE = ctypes.c_ubyte
@@ -249,7 +257,7 @@ class TCAMINFO(ctypes.Structure):
 
 # --- ThermalCameraSDK Class Definition ---
 class ThermalCameraSDK:
-    def __init__(self, dll_path):
+    def __init__(self, dll_path=DEFAULT_DLL_PATH):
         self.thermal_sdk = None
         try:
             print(f"Attempting to load DLL from: {dll_path}", flush=True)
@@ -467,7 +475,14 @@ def RECEIVE_PROC(tcam_info, sdk_instance):
     print("Receive thread stopped.", flush=True)
 
 # --- ConnectCamera function implementation ---
-def ConnectCamera(tcam_info: TCAMINFO, ip_address: str, port: int, sdk_instance: ThermalCameraSDK) -> bool:
+def ConnectCamera(
+    tcam_info: TCAMINFO,
+    ip_address: str = DEFAULT_IP_ADDRESS,
+    port: int = DEFAULT_PORT,
+    sdk_instance: ThermalCameraSDK = None,
+) -> bool:
+    if sdk_instance is None:
+        sdk_instance = ThermalCameraSDK()
     ip_bytes = list(map(int, ip_address.split(".")))
     tcam_info.ip_addr = (BYTE * 4)(*ip_bytes)
     tcam_info.port = port
@@ -596,35 +611,51 @@ def SendCameraConfig(
 
 # --- Example Usage ---
 if __name__ == "__main__":
-    sdk_instance = ThermalCameraSDK(
-        r"E:/Coding_practice/new_ThermalAnalyzer/SDK/SDK/bin64/ThermalCamSDK_x64_D.dll"
-    )
+    parser = argparse.ArgumentParser(description="Thermal Analyzer Example")
+    parser.add_argument("--config", default="config.ini", help="Path to config file")
+    parser.add_argument("--dll", help="Path to ThermalCam SDK DLL")
+    parser.add_argument("--ip", help="Camera IP address")
+    parser.add_argument("--port", type=int, help="Camera port")
+    args = parser.parse_args()
+
+    dll_path = DEFAULT_DLL_PATH
+    ip_address = DEFAULT_IP_ADDRESS
+    port = DEFAULT_PORT
+
+    if os.path.exists(args.config):
+        cfg = configparser.ConfigParser()
+        cfg.read(args.config)
+        dll_path = cfg.get("camera", "dll_path", fallback=dll_path)
+        ip_address = cfg.get("camera", "ip_address", fallback=ip_address)
+        port = cfg.getint("camera", "port", fallback=port)
+
+    if args.dll:
+        dll_path = args.dll
+    if args.ip:
+        ip_address = args.ip
+    if args.port:
+        port = args.port
+
+    sdk_instance = ThermalCameraSDK(dll_path)
     if not sdk_instance.is_dll_loaded():
         print("DLL not loaded. Cannot run example usage.", flush=True)
     else:
         tcam_info_instance = TCAMINFO()
         try:
-            # Replace with your camera's IP address and port
-            camera_ip = "192.168.0.101"  # Example IP, change this
-            camera_port = 15001
-
-            if ConnectCamera(tcam_info_instance, camera_ip, camera_port, sdk_instance):
+            if ConnectCamera(tcam_info_instance, ip_address, port, sdk_instance):
                 print(
-                    f"Connected to {camera_ip}:{camera_port}. Waiting for data and processing...", flush=True
+                    f"Connected to {ip_address}:{port}. Waiting for data and processing...",
+                    flush=True,
                 )
 
-                # Keep the connection alive and process data for a duration
-                # In a real application, this would be part of a GUI event loop or similar
                 start_time = time.time()
-                while time.time() - start_time < 15:  # Run for 15 seconds
-                    time.sleep(1)  # Sleep to avoid busy-waiting and allow thread to run
-                    # You can add more logic here to interact with the camera
-                    # For example, periodically send commands or display data
+                while time.time() - start_time < 15:
+                    time.sleep(1)
 
                 print("Time elapsed. Disconnecting...", flush=True)
                 DisconnectCamera(tcam_info_instance, sdk_instance)
             else:
                 print("Connection failed. Please check camera IP/port and connection.", flush=True)
         finally:
-            tcam_info_instance.uninitial()  # Clean up allocated memory
+            tcam_info_instance.uninitial()
             print("Program finished.", flush=True)
