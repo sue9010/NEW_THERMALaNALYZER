@@ -58,10 +58,12 @@ class POINT(ctypes.Structure):
 
 
 class IRF_IMAGE_INFO_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [("xSize", WORD), ("ySize", WORD)]
 
 
 class IRF_TEMP_CORRECTION_PAR_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("emissivity", FLOAT),
         ("atmTemp", FLOAT),
@@ -71,6 +73,7 @@ class IRF_TEMP_CORRECTION_PAR_T(ctypes.Structure):
 
 
 class IRF_SAVEDATA_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("reserved1", BYTE * 128),
         ("reserved2", BYTE * 256),
@@ -79,6 +82,7 @@ class IRF_SAVEDATA_T(ctypes.Structure):
 
 
 class IRF_AUTO_RANGE_METHOD_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("autoScale", INT),
         ("inputMethod", INT),
@@ -95,6 +99,7 @@ class IRF_AUTO_RANGE_METHOD_T(ctypes.Structure):
 
 
 class IRF_IR_CAM_DATA_T(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("ir_image", ctypes.POINTER(WORD)),
         ("image_buffer_size", DWORD),
@@ -270,7 +275,7 @@ class ThermalCameraSDK:
         self.thermal_sdk.CloseConnect.restype = SHORT
 
         self.thermal_sdk.GetIRImages.argtypes = [
-            UINT,
+            HANDLE,
             ctypes.POINTER(HANDLE),
             ctypes.POINTER(IRF_IR_CAM_DATA_T),
         ]
@@ -278,7 +283,7 @@ class ThermalCameraSDK:
 
         self.thermal_sdk.GetImageCG.argtypes = [
             ctypes.POINTER(BYTE),
-            UINT,
+            HANDLE,
             LONG,
             ctypes.POINTER(FLOAT),
             ctypes.POINTER(FLOAT),
@@ -287,7 +292,7 @@ class ThermalCameraSDK:
         self.thermal_sdk.GetImageCG.restype = SHORT
 
         self.thermal_sdk.SendCameraMessage.argtypes = [
-            UINT,
+            HANDLE,
             ctypes.POINTER(HANDLE),
             INT,
             WORD,
@@ -296,7 +301,7 @@ class ThermalCameraSDK:
         self.thermal_sdk.SendCameraMessage.restype = SHORT
 
         self.thermal_sdk.SendMessageToCamera.argtypes = [
-            UINT,
+            HANDLE,
             ctypes.POINTER(HANDLE),
             INT,
             WORD,
@@ -308,7 +313,7 @@ class ThermalCameraSDK:
         self.thermal_sdk.SendMessageToCamera.restype = SHORT
 
         self.thermal_sdk.GetPointTempCG.argtypes = [
-            UINT,
+            HANDLE,
             IRF_IMAGE_INFO_T,
             IRF_TEMP_CORRECTION_PAR_T,
             POINT,
@@ -329,7 +334,7 @@ class ThermalCameraSDK:
     def get_ir_images(self, h_sdk, keep_alive_id_ptr, ir_data_ptr):
         if not self.thermal_sdk:
             return -1
-        return self.thermal_sdk.GetIRImages(h_sdk.value, keep_alive_id_ptr, ir_data_ptr)
+        return self.thermal_sdk.GetIRImages(h_sdk, keep_alive_id_ptr, ir_data_ptr)
 
     def get_image_lut(self, p_palette_lut, lp, is_invert):
         if not self.thermal_sdk:
@@ -339,22 +344,22 @@ class ThermalCameraSDK:
     def get_image_cg(self, p_ir_tmp_buf, h_sdk, size, level_ptr, span_ptr, agc_ctrl_ptr):
         if not self.thermal_sdk:
             return -1
-        return self.thermal_sdk.GetImageCG(p_ir_tmp_buf, h_sdk.value, size, level_ptr, span_ptr, agc_ctrl_ptr)
+        return self.thermal_sdk.GetImageCG(p_ir_tmp_buf, h_sdk, size, level_ptr, span_ptr, agc_ctrl_ptr)
 
     def send_camera_message(self, h_sdk, keep_alive_id_ptr, msg_type, pmsg_type, rcode):
         if not self.thermal_sdk:
             return -1
-        return self.thermal_sdk.SendCameraMessage(h_sdk.value, keep_alive_id_ptr, msg_type, pmsg_type, rcode)
+        return self.thermal_sdk.SendCameraMessage(h_sdk, keep_alive_id_ptr, msg_type, pmsg_type, rcode)
 
     def send_message_to_camera(self, h_sdk, keep_alive_id_ptr, msg_type, pmsg_type, rcode, rcode2, rcode3, rcode4):
         if not self.thermal_sdk:
             return -1
-        return self.thermal_sdk.SendMessageToCamera(h_sdk.value, keep_alive_id_ptr, msg_type, pmsg_type, rcode, rcode2, rcode3, rcode4)
+        return self.thermal_sdk.SendMessageToCamera(h_sdk, keep_alive_id_ptr, msg_type, pmsg_type, rcode, rcode2, rcode3, rcode4)
 
     def get_point_temp_cg(self, h_sdk, ir_info, temp_corr_params, point):
         if not self.thermal_sdk:
             return -1
-        return self.thermal_sdk.GetPointTempCG(h_sdk.value, ir_info, temp_corr_params, point)
+        return self.thermal_sdk.GetPointTempCG(h_sdk, ir_info, temp_corr_params, point)
 
     def is_dll_loaded(self):
         return self.thermal_sdk is not None
