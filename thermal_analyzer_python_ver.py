@@ -415,8 +415,10 @@ def DoRecvCamData(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
 def DoRecvStreamData(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
     p_ir_cam = tcam_info.ir_data
 
-    level = tcam_info.agc_level
-    span = tcam_info.agc_span
+    # tcam_info.agc_level/span are plain floats. Wrap in ctypes
+    # objects so we can pass pointers for GetImageCG.
+    level = ctypes.c_float(tcam_info.agc_level)
+    span = ctypes.c_float(tcam_info.agc_span)
 
     res = sdk_instance.get_image_cg(
         tcam_info.p_ir_tmp_buf,
@@ -426,6 +428,10 @@ def DoRecvStreamData(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
         ctypes.byref(span),
         ctypes.byref(tcam_info.agc_ctrl),
     )
+
+    # Save updated AGC values back to the structure for later use
+    tcam_info.agc_level = level.value
+    tcam_info.agc_span = span.value
 
     if res != IRF_NO_ERROR:
         print(f"Failed GetImageCG. Error: {res}", flush=True)
@@ -650,11 +656,23 @@ if __name__ == "__main__":
                     flush=True,
                 )
 
+                # Request camera configuration and start streaming
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_REQ_CAM_DATA, sdk_instance=sdk_instance
+                )
+                time.sleep(0.5)
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_STREAM_ON, sdk_instance=sdk_instance
+                )
+
                 start_time = time.time()
                 while time.time() - start_time < 15:
                     time.sleep(1)
 
                 print("Time elapsed. Disconnecting...", flush=True)
+                SendCameraCommand(
+                    tcam_info_instance, _IRF_STREAM_OFF, sdk_instance=sdk_instance
+                )
                 DisconnectCamera(tcam_info_instance, sdk_instance)
             else:
                 print("Connection failed. Please check camera IP/port and connection.", flush=True)
