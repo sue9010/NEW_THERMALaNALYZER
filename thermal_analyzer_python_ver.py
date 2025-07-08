@@ -188,8 +188,6 @@ class TCAMINFO(ctypes.Structure):
         )
         self.p_ir_temp_buf = ctypes.cast(self._temp_buf, ctypes.POINTER(FLOAT))
 
-
-
         self.reset_member()
         self.reset_ir_data()
 
