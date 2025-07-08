@@ -528,15 +528,8 @@ def DisconnectCamera(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK) -> boo
         return False
 
     tcam_info.f_run_thread = False
-    if (
-        hasattr(tcam_info, "_python_thread_obj")
-        and tcam_info._python_thread_obj
-        and tcam_info._python_thread_obj.is_alive()
-    ):
-        tcam_info._python_thread_obj.join(timeout=5)
-        if tcam_info._python_thread_obj.is_alive():
-            print("Warning: Receive thread did not terminate gracefully.", flush=True)
 
+    # Close the connection first to unblock any pending SDK calls
     res = sdk_instance.close_connect(
         ctypes.byref(tcam_info._h_sdk_instance), tcam_info._keep_alive_id_instance.value
     )
@@ -544,6 +537,15 @@ def DisconnectCamera(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK) -> boo
     if res != IRF_NO_ERROR:
         print(f"Failed to disconnect from camera. Error code: {res}", flush=True)
         return False
+
+    # Wait for the receive thread to finish now that the SDK call has returned
+    if (
+        hasattr(tcam_info, "_python_thread_obj")
+        and tcam_info._python_thread_obj
+    ):
+        tcam_info._python_thread_obj.join(timeout=5)
+        if tcam_info._python_thread_obj.is_alive():
+            print("Warning: Receive thread did not terminate gracefully.", flush=True)
 
     tcam_info.reset_member()
     print("Successfully disconnected from camera.", flush=True)
