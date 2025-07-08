@@ -15,8 +15,6 @@ AF_INET = socket.AF_INET
 SOCK_STREAM = socket.SOCK_STREAM
 
 IRBUFSIZE = 640 * 481  # VGA or QVGA
-MAX_PALETTE = 13
-PALETTE_SIZE = 256 * 3  # 256 levels * 3 bytes (RGB)
 
 # IRF_MESSAGE_TYPE_T constants
 _IRF_NONE = -1
@@ -29,7 +27,6 @@ _IRF_STREAM_DATA = 5
 _IRF_REQ_CAM_DATA = 7
 _IRF_CAM_DATA = 8
 _IRF_SET_CAM_DATA = 10
-_IRF_SET_USER_PALETTE = 11
 _IRF_REQ_SYS_INFO = 12
 _IRF_SYS_INFO = 13
 _IRF_SPOT_STREAM_ON = 14
@@ -137,7 +134,6 @@ class TCAMINFO(ctypes.Structure):
         ("ir_data", IRF_IR_CAM_DATA_T),
         ("agc_ctrl", IRF_AUTO_RANGE_METHOD_T),
         ("ir_size", IRF_IMAGE_INFO_T),
-        ("ir_palette", INT),
         ("f_invert", BOOL),
         ("f_mirror", BOOL),
         ("f_flip", BOOL),
@@ -148,7 +144,6 @@ class TCAMINFO(ctypes.Structure):
         ("p_ir_tmp_buf", ctypes.POINTER(BYTE)),
         ("p_ir_img_buf", ctypes.POINTER(BYTE)),
         ("p_ir_temp_buf", ctypes.POINTER(FLOAT)),
-        ("p_palette_lut", (ctypes.POINTER(BYTE) * 2) * MAX_PALETTE),
     ]
 
     def __init__(self):
@@ -193,15 +188,6 @@ class TCAMINFO(ctypes.Structure):
         )
         self.p_ir_temp_buf = ctypes.cast(self._temp_buf, ctypes.POINTER(FLOAT))
 
-        for i in range(MAX_PALETTE):
-            buf0 = ctypes.create_string_buffer(PALETTE_SIZE)
-            buf1 = ctypes.create_string_buffer(PALETTE_SIZE)
-            self.p_palette_lut[i][0] = ctypes.cast(buf0, ctypes.POINTER(BYTE))
-            self.p_palette_lut[i][1] = ctypes.cast(buf1, ctypes.POINTER(BYTE))
-            # store buffers to keep them alive
-            setattr(self, f"_palette_buf_{i}_0", buf0)
-            setattr(self, f"_palette_buf_{i}_1", buf1)
-
         self.reset_member()
         self.reset_ir_data()
 
@@ -216,11 +202,7 @@ class TCAMINFO(ctypes.Structure):
         self._tmp_buf = None
         self._img_buf = None
         self._temp_buf = None
-        for i in range(MAX_PALETTE):
-            self.p_palette_lut[i][0] = None
-            self.p_palette_lut[i][1] = None
-            setattr(self, f"_palette_buf_{i}_0", None)
-            setattr(self, f"_palette_buf_{i}_1", None)
+
 
     def reset_member(self):
         self.p_owner = None
@@ -233,7 +215,6 @@ class TCAMINFO(ctypes.Structure):
         self.f_recv_stream = False
         self.ir_size.xSize = 0
         self.ir_size.ySize = 0
-        self.ir_palette = 0
         self.f_invert = False
         self.f_mirror = False
         self.f_flip = False
@@ -356,11 +337,6 @@ class ThermalCameraSDK:
             return -1
         return self.thermal_sdk.GetIRImages(h_sdk, keep_alive_id_ptr, ir_data_ptr)
 
-    def get_image_lut(self, p_palette_lut, lp, is_invert):
-        if not self.thermal_sdk:
-            return -1
-        return self.thermal_sdk.GetImageLUT(p_palette_lut, lp, is_invert)
-
     def get_image_cg(self, p_ir_tmp_buf, h_sdk, size, level_ptr, span_ptr, agc_ctrl_ptr):
         if not self.thermal_sdk:
             return -1
@@ -407,19 +383,6 @@ def DoRecvCamData(tcam_info: TCAMINFO, sdk_instance: ThermalCameraSDK):
     else:
         print(f"Invalid sensor type ({sensor_id}).", flush=True)
         return
-
-    for lp in range(MAX_PALETTE):
-        res_normal = sdk_instance.get_image_lut(
-            tcam_info.p_palette_lut[lp][0], lp, False
-        )
-        if res_normal != IRF_NO_ERROR:
-            print(f"Failed to get palette {lp} (normal). Error: {res_normal}", flush=True)
-
-        res_invert = sdk_instance.get_image_lut(
-            tcam_info.p_palette_lut[lp][1], lp, True
-        )
-        if res_invert != IRF_NO_ERROR:
-            print(f"Failed to get palette {lp} (invert). Error: {res_invert}", flush=True)
 
     print(
         f"Camera data received. Resolution: {tcam_info.ir_size.xSize}x{tcam_info.ir_size.ySize}", flush=True
