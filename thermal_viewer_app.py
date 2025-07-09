@@ -160,7 +160,14 @@ class ThermalViewerApp(QMainWindow):
     # region Image Display
     def update_image_display(self):
         try:
-            raw_frame = self.frame_queue.get_nowait()
+            raw_frame = None
+            # 큐에 쌓인 모든 프레임을 소진하고 가장 최신 프레임만 가져옵니다.
+            while not self.frame_queue.empty():
+                raw_frame = self.frame_queue.get_nowait()
+            
+            if raw_frame is None:
+                return # 처리할 프레임이 없으면 종료
+
             celsius_image = self.thermal_cam._convert_raw_to_celsius(raw_frame)
             
             edged_image, display_values = self.thermal_cam._draw_edges_on_image(celsius_image)
