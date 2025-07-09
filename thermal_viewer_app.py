@@ -2,103 +2,62 @@ import sys
 import asyncio
 import numpy as np
 import cv2
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpinBox
+from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5 import uic
 from qasync import QEventLoop, asyncSlot
 
-from thermal_camera_client import ThermalCam, MESSAGE_TYPE
+from thermal_camera_client import ThermalCam
 
 class ThermalViewerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Thermal Camera Viewer")
-        self.setGeometry(100, 100, 800, 700)
+        
+        # .ui 파일에서 UI를 로드합니다.
+        uic.loadUi("thermal_viewer.ui", self)
 
-        self.thermal_cam = ThermalCam() # Initialize ThermalCam client
-        self.frame_queue = asyncio.Queue() # Queue for receiving frames from camera client
+        self.thermal_cam = ThermalCam()
+        self.frame_queue = asyncio.Queue()
         self.stream_task = None
 
-        self.init_ui()
+        self.init_connections()
+        self.update_edge_controls_state() # 초기 UI 상태 설정
 
-    def init_ui(self):
-        # Main widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-
-        # Image display
-        self.image_label = QLabel("No Image")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        # Initial size can be a placeholder, actual size will be set after connection
-        self.image_label.setFixedSize(640, 480) # Placeholder size
-        self.image_label.setStyleSheet("background-color: black; color: white;")
-        main_layout.addWidget(self.image_label)
-
-        # Canny Edge Controls
-        edge_layout = QHBoxLayout()
-        
-        # Threshold 1
-        t1_layout = QVBoxLayout()
-        self.t1_label = QLabel("Threshold 1: 50")
-        t1_layout.addWidget(self.t1_label)
-        self.t1_slider = QSlider(Qt.Horizontal)
-        self.t1_slider.setRange(0, 500)
-        self.t1_slider.setValue(50)
-        self.t1_slider.valueChanged.connect(self.update_canny_t1)
-        t1_layout.addWidget(self.t1_slider)
-        self.t1_spinbox = QSpinBox()
-        self.t1_spinbox.setRange(0, 500)
-        self.t1_spinbox.setValue(50)
-        self.t1_spinbox.valueChanged.connect(self.update_canny_t1)
-        t1_layout.addWidget(self.t1_spinbox)
-        edge_layout.addLayout(t1_layout)
-
-        # Threshold 2
-        t2_layout = QVBoxLayout()
-        self.t2_label = QLabel("Threshold 2: 150")
-        t2_layout.addWidget(self.t2_label)
-        self.t2_slider = QSlider(Qt.Horizontal)
-        self.t2_slider.setRange(0, 500)
-        self.t2_slider.setValue(150)
-        self.t2_slider.valueChanged.connect(self.update_canny_t2)
-        t2_layout.addWidget(self.t2_slider)
-        self.t2_spinbox = QSpinBox()
-        self.t2_spinbox.setRange(0, 500)
-        self.t2_spinbox.setValue(150)
-        self.t2_spinbox.valueChanged.connect(self.update_canny_t2)
-        t2_layout.addWidget(self.t2_spinbox)
-        edge_layout.addLayout(t2_layout)
-
-        main_layout.addLayout(edge_layout)
-
-        # Control buttons
-        control_layout = QHBoxLayout()
-        self.connect_button = QPushButton("Connect")
+    def init_connections(self):
+        # UI 요소의 시그널을 슬롯(메서드)에 연결합니다.
         self.connect_button.clicked.connect(self.connect_camera)
-        control_layout.addWidget(self.connect_button)
-
-        self.disconnect_button = QPushButton("Disconnect")
         self.disconnect_button.clicked.connect(self.disconnect_camera)
-        self.disconnect_button.setEnabled(False)
-        control_layout.addWidget(self.disconnect_button)
-
-        self.start_stream_button = QPushButton("Start Stream")
         self.start_stream_button.clicked.connect(self.start_stream)
-        self.start_stream_button.setEnabled(False)
-        control_layout.addWidget(self.start_stream_button)
-
-        self.stop_stream_button = QPushButton("Stop Stream")
         self.stop_stream_button.clicked.connect(self.stop_stream)
-        self.stop_stream_button.setEnabled(False)
-        control_layout.addWidget(self.stop_stream_button)
 
-        main_layout.addLayout(control_layout)
+        self.t1_slider.valueChanged.connect(self.update_canny_t1)
+        self.t1_spinbox.valueChanged.connect(self.update_canny_t1)
+        self.t2_slider.valueChanged.connect(self.update_canny_t2)
+        self.t2_spinbox.valueChanged.connect(self.update_canny_t2)
 
-        # Timer for updating UI with new frames
+        self.edge_mode_button.clicked.connect(self.toggle_edge_mode)
+        self.edge_auto_manual_button.clicked.connect(self.toggle_edge_auto_manual)
+
+        self.agc_mode_button.clicked.connect(self.toggle_agc_mode)
+        self.agc_min_slider.valueChanged.connect(self.update_agc_min)
+        self.agc_min_spinbox.valueChanged.connect(self.update_agc_min)
+        self.agc_max_slider.valueChanged.connect(self.update_agc_max)
+        self.agc_max_spinbox.valueChanged.connect(self.update_agc_max)
+
+        # 새 프레임으로 UI를 업데이트하기 위한 타이머
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_image_display)
-        self.update_timer.start(30) # Update every 30ms (approx 33 FPS)
+        self.update_timer.start(30) # 30ms마다 업데이트 (약 33 FPS)
+
+    def init_state(self):
+        # .ui 파일의 기본값으로 처리되지 않는 위젯의 초기 상태를 설정합니다.
+        self.agc_min_label.setEnabled(False)
+        self.agc_min_slider.setEnabled(False)
+        self.agc_min_spinbox.setEnabled(False)
+        self.agc_max_label.setEnabled(False)
+        self.agc_max_slider.setEnabled(False)
+        self.agc_max_spinbox.setEnabled(False)
 
     def update_canny_t1(self, value):
         self.thermal_cam.canny_threshold1 = value
@@ -116,6 +75,75 @@ class ThermalViewerApp(QMainWindow):
         if self.t2_spinbox.value() != value:
             self.t2_spinbox.setValue(value)
 
+    def update_edge_controls_state(self):
+        edges_on = self.edge_mode_button.isChecked()
+        is_manual = not self.edge_auto_manual_button.isChecked()
+
+        self.edge_auto_manual_button.setEnabled(edges_on)
+        
+        sliders_enabled = edges_on and is_manual
+        self.t1_label.setEnabled(sliders_enabled)
+        self.t1_slider.setEnabled(sliders_enabled)
+        self.t1_spinbox.setEnabled(sliders_enabled)
+        self.t2_label.setEnabled(sliders_enabled)
+        self.t2_slider.setEnabled(sliders_enabled)
+        self.t2_spinbox.setEnabled(sliders_enabled)
+
+    def toggle_edge_mode(self, checked):
+        self.thermal_cam.edge_detection_enabled = checked
+        self.edge_mode_button.setText("Set Edge Off" if checked else "Set Edge On")
+        if checked: # Edges are being turned ON
+            self.thermal_cam.reset_ema_state() # Reset EMA when turning edges on
+        self.update_edge_controls_state()
+
+    def toggle_edge_auto_manual(self, checked):
+        self.thermal_cam.edge_mode = 'auto' if checked else 'manual'
+        self.edge_auto_manual_button.setText("Set Manual Edge" if checked else "Set Auto Edge")
+        if checked: # Switching to Auto Edge
+            self.thermal_cam.reset_ema_state() # Reset EMA when switching to auto
+        self.update_edge_controls_state()
+
+    def toggle_agc_mode(self, checked):
+        if checked:
+            self.thermal_cam.agc_mode = 'manual'
+            self.agc_mode_button.setText("Set Auto AGC")
+            is_manual = True
+        else:
+            self.thermal_cam.agc_mode = 'auto'
+            self.agc_mode_button.setText("Set Manual AGC")
+            is_manual = False
+        
+        print(f"AGC mode set to: {self.thermal_cam.agc_mode}")
+
+        self.agc_min_label.setEnabled(is_manual)
+        self.agc_min_slider.setEnabled(is_manual)
+        self.agc_min_spinbox.setEnabled(is_manual)
+        self.agc_max_label.setEnabled(is_manual)
+        self.agc_max_slider.setEnabled(is_manual)
+        self.agc_max_spinbox.setEnabled(is_manual)
+
+    def update_agc_min(self, value):
+        if isinstance(value, int): # 슬라이더에서 오는 int 값 처리
+            value = value / 10.0
+        
+        self.thermal_cam.manual_agc_min = value
+        self.agc_min_label.setText(f"Min Temp: {value:.1f}°C")
+        if self.agc_min_slider.value() != int(value * 10):
+            self.agc_min_slider.setValue(int(value * 10))
+        if self.agc_min_spinbox.value() != value:
+            self.agc_min_spinbox.setValue(value)
+
+    def update_agc_max(self, value):
+        if isinstance(value, int): # 슬라이더에서 오는 int 값 처리
+            value = value / 10.0
+
+        self.thermal_cam.manual_agc_max = value
+        self.agc_max_label.setText(f"Max Temp: {value:.1f}°C")
+        if self.agc_max_slider.value() != int(value * 10):
+            self.agc_max_slider.setValue(int(value * 10))
+        if self.agc_max_spinbox.value() != value:
+            self.agc_max_spinbox.setValue(value)
+
     @asyncSlot()
     async def connect_camera(self):
         try:
@@ -124,7 +152,6 @@ class ThermalViewerApp(QMainWindow):
             self.disconnect_button.setEnabled(True)
             self.start_stream_button.setEnabled(True)
             print("Camera connected successfully.")
-            # Display initial camera info
             fw_version = self.thermal_cam.get_firmware_version()
             cam_info = self.thermal_cam.get_camera_info()
             print(f"Firmware Version: {fw_version}")
@@ -132,8 +159,6 @@ class ThermalViewerApp(QMainWindow):
             for key, value in cam_info.items():
                 print(f"  {key}: {value}")
 
-            # Set image label size based on actual camera resolution
-            self.image_label.setFixedSize(self.thermal_cam.image_dimensions["width"], self.thermal_cam.image_dimensions["height"])
             self.image_label.setText("Ready to stream")
 
         except Exception as e:
@@ -146,7 +171,10 @@ class ThermalViewerApp(QMainWindow):
     async def disconnect_camera(self):
         if self.stream_task:
             self.stream_task.cancel()
-            await self.stream_task # Wait for the task to finish cancelling
+            try:
+                await self.stream_task
+            except asyncio.CancelledError:
+                pass # 정상적인 취소
             self.stream_task = None
         await self.thermal_cam.disconnect()
         self.connect_button.setEnabled(True)
@@ -176,7 +204,10 @@ class ThermalViewerApp(QMainWindow):
     async def stop_stream(self):
         if self.stream_task:
             self.stream_task.cancel()
-            await self.stream_task # Wait for the task to finish cancelling
+            try:
+                await self.stream_task
+            except asyncio.CancelledError:
+                pass # 정상적인 취소
             self.stream_task = None
         self.start_stream_button.setEnabled(True)
         self.stop_stream_button.setEnabled(False)
@@ -184,34 +215,39 @@ class ThermalViewerApp(QMainWindow):
 
     def update_image_display(self):
         try:
-            # Try to get a frame from the queue without blocking
             raw_frame = self.frame_queue.get_nowait()
-            
-            # Convert raw data to Celsius
             celsius_image = self.thermal_cam._convert_raw_to_celsius(raw_frame)
             
-            # Draw edges on the Celsius image
-            edged_image = self.thermal_cam._draw_edges_on_image(celsius_image)
+            # _draw_edges_on_image에서 이미지와 함께 현재 값들을 받아옵니다.
+            edged_image, display_values = self.thermal_cam._draw_edges_on_image(celsius_image)
             
-            # Convert numpy array (BGR) to QImage
+            # Auto AGC 모드일 때 AGC 라벨 업데이트
+            if self.thermal_cam.agc_mode == 'auto':
+                self.agc_min_label.setText(f"Min Temp: {display_values['agc_min']:.1f}°C")
+                self.agc_max_label.setText(f"Max Temp: {display_values['agc_max']:.1f}°C")
+            # Manual AGC 모드일 때는 update_agc_min/max에서 이미 라벨이 업데이트됩니다.
+
+            # Auto Edge 모드이고 Edge Detection이 활성화되어 있을 때 Edge 라벨 업데이트
+            if self.thermal_cam.edge_mode == 'auto' and self.thermal_cam.edge_detection_enabled:
+                self.t1_label.setText(f"Threshold 1: {display_values['edge_t1']}")
+                self.t2_label.setText(f"Threshold 2: {display_values['edge_t2']}")
+            # Manual Edge 모드이거나 Edge Detection이 비활성화되어 있을 때는 update_canny_t1/t2에서 업데이트되거나 비활성화됩니다.
+
             height, width, channel = edged_image.shape
             bytes_per_line = 3 * width
             q_image = QImage(edged_image.data, width, height, bytes_per_line, QImage.Format_BGR888)
             
-            # Scale QImage to fit QLabel and display
             pixmap = QPixmap.fromImage(q_image)
             self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
         except asyncio.QueueEmpty:
-            pass # No new frame yet
+            pass
         except Exception as e:
             print(f"Error updating image display: {e}")
 
     def closeEvent(self, event):
-        # Schedule disconnect_camera to run on the event loop without blocking closeEvent
         self.disconnect_camera()
         super().closeEvent(event)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -34,6 +34,15 @@ class ThermalCam:
         self.temp_lookup_table = None  # Initialize temp_lookup_table
         self.canny_threshold1 = 50
         self.canny_threshold2 = 150
+        self.agc_mode = "auto"  # 'auto' or 'manual'
+        self.manual_agc_min = 20.0
+        self.manual_agc_max = 40.0
+        self.edge_detection_enabled = True
+        self.edge_mode = "auto"  # 'auto' or 'manual'
+        self.ema_lower_threshold = 0.0
+        self.ema_upper_threshold = 0.0
+        self.ema_alpha = 0.001  # Smoothing factor (0.0 to 1.0). Lower = more smoothing. edge 변경 속도 제어
+        self.frame_count_for_ema = 0  # To handle the first frame
 
     async def _listener(self):
         try:
@@ -264,31 +273,121 @@ class ThermalCam:
         )
         return grayscale_image
 
-    def _draw_edges_on_image(self, celsius_data: np.ndarray) -> np.ndarray:
-        # Normalize Celsius data to 0-255 for Canny edge detection
-        normalized_celsius = cv2.normalize(
-            celsius_data, None, 0, 255, cv2.NORM_MINMAX
-        ).astype(np.uint8)
+    def reset_ema_state(self):
+        self.ema_lower_threshold = 0.0
+        self.ema_upper_threshold = 0.0
+        self.frame_count_for_ema = 0
 
-        # Apply Canny edge detection
-        # Thresholds (50, 150) might need tuning based on image characteristics
-        edges = cv2.Canny(
-            normalized_celsius, self.canny_threshold1, self.canny_threshold2
-        )
+    def _draw_edges_on_image(self, celsius_data: np.ndarray) -> tuple[np.ndarray, dict]:
+        display_values = {
+            "agc_min": None,
+            "agc_max": None,
+            "edge_t1": None,
+            "edge_t2": None,
+        }
 
-        # Create a 3-channel image from the normalized grayscale image to draw colored edges
+        # Normalize Celsius data to 0-255 based on AGC mode
+        if self.agc_mode == "auto":
+            # For Auto AGC, use Contrast Limited Adaptive Histogram Equalization (CLAHE)
+            # for superior real-time contrast enhancement.
+
+            # First, normalize the full-range float data to a standard 8-bit image.
+            # This preserves the dynamic range of the current scene.
+            base_gray_image = cv2.normalize(
+                celsius_data, None, 0, 255, cv2.NORM_MINMAX
+            ).astype(np.uint8)
+
+            # Create and cache a CLAHE object for efficiency.
+            if not hasattr(self, "clahe"):
+                self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+            # Apply CLAHE to enhance local contrast.
+            normalized_celsius = self.clahe.apply(base_gray_image)
+
+            # Capture min/max values for display
+            display_values["agc_min"] = celsius_data.min()
+            display_values["agc_max"] = celsius_data.max()
+        else:  # Manual AGC
+            # Manual AGC: clip to a user-defined min/max temp range, then normalize.
+            clipped_data = np.clip(
+                celsius_data, self.manual_agc_min, self.manual_agc_max
+            )
+            # Handle the case where min and max are the same to avoid division by zero.
+            if self.manual_agc_max <= self.manual_agc_min:
+                normalized_celsius = np.full_like(clipped_data, 128, dtype=np.uint8)
+            else:
+                # Linearly scale the clipped data to the 0-255 range.
+                normalized_celsius = (
+                    255
+                    * (clipped_data - self.manual_agc_min)
+                    / (self.manual_agc_max - self.manual_agc_min)
+                ).astype(np.uint8)
+
+            # Capture min/max values for display
+            display_values["agc_min"] = self.manual_agc_min
+            display_values["agc_max"] = self.manual_agc_max
+
+        # Create a 3-channel image from the normalized grayscale image
         colored_image = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
 
-        # Find contours from the edges
-        contours, _ = cv2.findContours(
-            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        # Apply edge detection if enabled
+        if self.edge_detection_enabled:
+            # Determine Canny thresholds based on mode
+            if self.edge_mode == "auto":
+                # Auto mode: calculate thresholds based on image median
+                v = np.median(normalized_celsius)
+                sigma = 0.33
+                lower_current = int(max(0, (1.0 - sigma) * v))
+                upper_current = int(min(255, (1.0 + sigma) * v))
 
-        # Draw contours (edges) on the colored image with white color and 3px thickness
-        # (255, 255, 255) is BGR for white
-        cv2.drawContours(colored_image, contours, -1, (255, 255, 255), 1)
+                # Apply Exponential Moving Average (EMA) for smoothing
+                if self.frame_count_for_ema == 0:  # First frame, initialize EMA
+                    self.ema_lower_threshold = float(lower_current)
+                    self.ema_upper_threshold = float(upper_current)
+                else:
+                    self.ema_lower_threshold = (
+                        self.ema_alpha * lower_current
+                        + (1 - self.ema_alpha) * self.ema_lower_threshold
+                    )
+                    self.ema_upper_threshold = (
+                        self.ema_alpha * upper_current
+                        + (1 - self.ema_alpha) * self.ema_upper_threshold
+                    )
 
-        return colored_image
+                self.frame_count_for_ema += 1
+
+                # Use smoothed thresholds for Canny
+                lower = int(self.ema_lower_threshold)
+                upper = int(self.ema_upper_threshold)
+
+                display_values["edge_t1"] = lower
+                display_values["edge_t2"] = upper
+            else:  # Manual mode
+                lower = self.canny_threshold1
+                upper = self.canny_threshold2
+                display_values["edge_t1"] = lower
+                display_values["edge_t2"] = upper
+
+            # Apply a small Gaussian blur (5x5 kernel) to suppress noise before Canny.
+            # This blur is applied only to the image used for edge detection,
+            # not to the final displayed background image.
+            # edge 계산시 노이즈 무시 크기
+            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (5, 5), 0)
+
+            # Apply Canny edge detection
+            edges = cv2.Canny(blurred_for_canny, lower, upper)
+
+            # Find contours from the edges
+            contours, _ = cv2.findContours(
+                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
+            cv2.drawContours(
+                colored_image, contours, -1, (0, 255, 0), 1, lineType=cv2.LINE_AA
+            )
+
+        return colored_image, display_values
 
     async def get_thermal_image(self):
         print("\nAttempting to get thermal image...")
