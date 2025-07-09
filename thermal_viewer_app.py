@@ -178,18 +178,15 @@ class ThermalViewerApp(QMainWindow):
 
     def update_ema_alpha(self, value):
         self.thermal_cam.ema_alpha = value / 1000.0
-        # Optionally update a label to show the current value
-        # self.ema_alpha_label.setText(f"EMA Alpha: {self.thermal_cam.ema_alpha:.3f}")
+        self.ema_alpha_label.setText(f"EMA Alpha: {self.thermal_cam.ema_alpha:.3f}")
 
     def update_max_edge_percentage(self, value):
         self.thermal_cam.max_edge_percentage = value / 100.0
-        # Optionally update a label to show the current value
-        # self.max_edge_label.setText(f"Max Edge %: {self.thermal_cam.max_edge_percentage:.2f}")
+        self.max_edge_label.setText(f"Max Edge %: {self.thermal_cam.max_edge_percentage:.2f}")
 
     def update_threshold_adjustment_step(self, value):
         self.thermal_cam.threshold_adjustment_step = value
-        # Optionally update a label to show the current value
-        # self.threshold_adjustment_step_label.setText(f"Adj Step: {self.thermal_cam.threshold_adjustment_step}")
+        self.threshold_adjustment_step_label.setText(f"Adj Step: {self.thermal_cam.threshold_adjustment_step}")
 
     def update_edge_controls_state(self):
         edges_on = self.edge_mode_button.isChecked()

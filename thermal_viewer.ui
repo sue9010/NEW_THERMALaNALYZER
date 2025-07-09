@@ -237,23 +237,23 @@
        </widget>
       </item>
       <item row="0" column="0">
-       <widget class="QLabel" name="label">
+       <widget class="QLabel" name="max_edge_label">
         <property name="text">
-         <string>Max edge</string>
+         <string>Max edge: </string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <widget class="QLabel" name="label_2">
+       <widget class="QLabel" name="threshold_adjustment_step_label">
         <property name="text">
-         <string>Threadhold adjustment</string>
+         <string>Threadhold adjustment: </string>
         </property>
        </widget>
       </item>
       <item row="0" column="2">
-       <widget class="QLabel" name="label_3">
+       <widget class="QLabel" name="ema_alpha_label">
         <property name="text">
-         <string>EMA</string>
+         <string>EMA: </string>
         </property>
        </widget>
       </item>
