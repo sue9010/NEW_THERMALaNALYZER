@@ -421,7 +421,9 @@ class ThermalCam:
             self.ema_upper_threshold = max(0, min(255, self.ema_upper_threshold))
 
             # 디버깅을 위한 출력
-            print(f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})")
+            print(
+                f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})"
+            )
 
             # 3. 다음 프레임에 적용 (lower, upper 변수가 이미 EMA 값을 사용하도록 설정되어 있으므로,
             #    여기서 조정된 self.ema_lower_threshold와 self.ema_upper_threshold가 다음 프레임에 반영됨)
