@@ -43,8 +43,8 @@ class ThermalCam:
         self.ema_upper_threshold = 0.0
         self.ema_alpha = 0.001  # Smoothing factor (0.0 to 1.0). Lower = more smoothing. edge 변경 속도 제어
         self.frame_count_for_ema = 0  # To handle the first frame
-        self.edge_color = (0, 255, 0) # Default green, BGR
-        self.edge_thickness = 1 # Default 1 pixel
+        self.edge_color = (0, 255, 0)  # Default green, BGR
+        self.edge_thickness = 1  # Default 1 pixel
 
     async def _listener(self):
         try:
@@ -306,6 +306,17 @@ class ThermalCam:
             # Apply CLAHE to enhance local contrast.
             normalized_celsius = self.clahe.apply(base_gray_image)
 
+            # Apply Super Resolution if enabled
+            if self.super_resolution_enabled:
+                scale_factor = 2
+                new_width = int(normalized_celsius.shape[1] * scale_factor)
+                new_height = int(normalized_celsius.shape[0] * scale_factor)
+                normalized_celsius = cv2.resize(
+                    normalized_celsius,
+                    (new_width, new_height),
+                    interpolation=cv2.INTER_CUBIC,
+                )
+
             # Capture min/max values for display
             display_values["agc_min"] = celsius_data.min()
             display_values["agc_max"] = celsius_data.max()
@@ -324,6 +335,17 @@ class ThermalCam:
                     * (clipped_data - self.manual_agc_min)
                     / (self.manual_agc_max - self.manual_agc_min)
                 ).astype(np.uint8)
+
+            # Apply Super Resolution if enabled
+            if self.super_resolution_enabled:
+                scale_factor = 2
+                new_width = int(normalized_celsius.shape[1] * scale_factor)
+                new_height = int(normalized_celsius.shape[0] * scale_factor)
+                normalized_celsius = cv2.resize(
+                    normalized_celsius,
+                    (new_width, new_height),
+                    interpolation=cv2.INTER_CUBIC,
+                )
 
             # Capture min/max values for display
             display_values["agc_min"] = self.manual_agc_min
@@ -374,7 +396,7 @@ class ThermalCam:
             # This blur is applied only to the image used for edge detection,
             # not to the final displayed background image.
             # edge 계산시 노이즈 무시 크기
-            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (3, 3), 0)
+            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (5, 5), 0)
 
             # Apply Canny edge detection
             edges = cv2.Canny(blurred_for_canny, lower, upper)
@@ -389,7 +411,9 @@ class ThermalCam:
                     thinned_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
                 )
             except AttributeError:
-                print("cv2.ximgproc.thinning not found. Please ensure opencv-contrib-python is installed.")
+                print(
+                    "cv2.ximgproc.thinning not found. Please ensure opencv-contrib-python is installed."
+                )
                 # Fallback to unthinned edges if thinning fails
                 contours, _ = cv2.findContours(
                     edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -402,7 +426,12 @@ class ThermalCam:
 
             # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
             cv2.drawContours(
-                colored_image, contours, -1, self.edge_color, self.edge_thickness, lineType=cv2.LINE_AA
+                colored_image,
+                contours,
+                -1,
+                self.edge_color,
+                self.edge_thickness,
+                lineType=cv2.LINE_AA,
             )
 
         return colored_image, display_values

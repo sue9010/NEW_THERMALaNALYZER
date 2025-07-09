@@ -24,6 +24,10 @@ class ThermalViewerApp(QMainWindow):
         # Default edge color (green) and thickness
         self.thermal_cam.edge_color = (0, 255, 0) # BGR format for OpenCV
         self.thermal_cam.edge_thickness = 1
+        self.thermal_cam.super_resolution_enabled = False # Default to off
+        self.super_resolution_button.setCheckable(True) # Make the button toggleable
+        self.super_resolution_button.setChecked(False) # Initial state
+        self.super_resolution_button.setText("SR Off") # Initial text
 
         # Configure edge_thickness_spinbox and slider
         self.edge_thickness_spinbox.setMinimum(1)
@@ -67,6 +71,9 @@ class ThermalViewerApp(QMainWindow):
         self.edge_color_button.clicked.connect(self.select_edge_color)
         self.edge_thickness_spinbox.valueChanged.connect(self.update_edge_thickness)
         self.edge_thickness_slider.valueChanged.connect(self.update_edge_thickness)
+
+        # Super Resolution control
+        self.super_resolution_button.clicked.connect(self.toggle_super_resolution)
 
     def init_state(self):
         # .ui 파일의 기본값으로 처리되지 않는 위젯의 초기 상태를 설정합니다.
@@ -116,6 +123,11 @@ class ThermalViewerApp(QMainWindow):
             self.edge_thickness_slider.blockSignals(False)
 
         # Optionally, update a label to show current thickness if needed
+
+    def toggle_super_resolution(self):
+        checked = self.super_resolution_button.isChecked()
+        self.thermal_cam.super_resolution_enabled = checked
+        self.super_resolution_button.setText("SR On" if checked else "SR Off")
 
     def update_edge_controls_state(self):
         edges_on = self.edge_mode_button.isChecked()

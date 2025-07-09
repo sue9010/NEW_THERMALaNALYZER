@@ -285,6 +285,17 @@
      </layout>
     </item>
     <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_2">
+      <item>
+       <widget class="QPushButton" name="super_resolution_button">
+        <property name="text">
+         <string>Super resolution</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
      <layout class="QHBoxLayout" name="control_layout">
       <item>
        <widget class="QPushButton" name="connect_button">
