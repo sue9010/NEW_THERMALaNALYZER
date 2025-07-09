@@ -368,19 +368,35 @@ class ThermalCam:
                 display_values["edge_t1"] = lower
                 display_values["edge_t2"] = upper
 
-            # Apply a small Gaussian blur (5x5 kernel) to suppress noise before Canny.
+            # Apply a small Gaussian blur (3x3 kernel) to suppress noise before Canny.
             # This blur is applied only to the image used for edge detection,
             # not to the final displayed background image.
             # edge 계산시 노이즈 무시 크기
-            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (5, 5), 0)
+            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (3, 3), 0)
 
             # Apply Canny edge detection
             edges = cv2.Canny(blurred_for_canny, lower, upper)
 
-            # Find contours from the edges
-            contours, _ = cv2.findContours(
-                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
+            # Apply thinning to make edges 1-pixel wide
+            try:
+                # Ensure edges is a binary image (0 or 255) for thinning
+                edges_binary = (edges > 0).astype(np.uint8) * 255
+                thinned_edges = cv2.ximgproc.thinning(edges_binary)
+                # Use thinned_edges for contour finding
+                contours, _ = cv2.findContours(
+                    thinned_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+            except AttributeError:
+                print("cv2.ximgproc.thinning not found. Please ensure opencv-contrib-python is installed.")
+                # Fallback to unthinned edges if thinning fails
+                contours, _ = cv2.findContours(
+                    edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+            except Exception as e:
+                print(f"Error during thinning: {e}")
+                contours, _ = cv2.findContours(
+                    edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
 
             # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
             cv2.drawContours(
