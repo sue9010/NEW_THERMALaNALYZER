@@ -45,6 +45,8 @@ class ThermalCam:
         self.frame_count_for_ema = 0  # To handle the first frame
         self.edge_color = (0, 255, 0)  # Default green, BGR
         self.edge_thickness = 1  # Default 1 pixel
+        self.max_edge_percentage = 0.05  # Max 5% of pixels can be edges
+        self.threshold_adjustment_step = 5  # How much to adjust thresholds by
 
     async def _listener(self):
         try:
@@ -396,10 +398,33 @@ class ThermalCam:
             # This blur is applied only to the image used for edge detection,
             # not to the final displayed background image.
             # edge 계산시 노이즈 무시 크기
-            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (5, 5), 0)
+            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (3, 3), 0)
 
             # Apply Canny edge detection
             edges = cv2.Canny(blurred_for_canny, lower, upper)
+
+            # 1. 현재 엣지 픽셀 비율 계산
+            current_edge_percentage = np.count_nonzero(edges) / edges.size
+
+            # 2. EMA 임계값 동적 조정
+            if current_edge_percentage > self.max_edge_percentage:
+                # 엣지 수가 너무 많으면 임계값 증가 (더 엄격하게)
+                self.ema_lower_threshold += self.threshold_adjustment_step
+                self.ema_upper_threshold += self.threshold_adjustment_step
+            elif current_edge_percentage < self.max_edge_percentage / 2:
+                # 엣지 수가 너무 적으면 임계값 감소 (더 많은 엣지 감지)
+                self.ema_lower_threshold -= self.threshold_adjustment_step
+                self.ema_upper_threshold -= self.threshold_adjustment_step
+
+            # 임계값 유효 범위 (0-255) 보장
+            self.ema_lower_threshold = max(0, min(255, self.ema_lower_threshold))
+            self.ema_upper_threshold = max(0, min(255, self.ema_upper_threshold))
+
+            # 디버깅을 위한 출력
+            print(f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})")
+
+            # 3. 다음 프레임에 적용 (lower, upper 변수가 이미 EMA 값을 사용하도록 설정되어 있으므로,
+            #    여기서 조정된 self.ema_lower_threshold와 self.ema_upper_threshold가 다음 프레임에 반영됨)
 
             # Apply thinning to make edges 1-pixel wide
             try:

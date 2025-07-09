@@ -38,6 +38,19 @@ class ThermalViewerApp(QMainWindow):
         self.edge_thickness_slider.setMaximum(10) # Example max thickness
         self.edge_thickness_slider.setValue(self.thermal_cam.edge_thickness)
 
+        # Initialize new slider values
+        self.ema_alpha_slider.setMinimum(0)
+        self.ema_alpha_slider.setMaximum(1000) # Represents 0.000 to 1.000
+        self.ema_alpha_slider.setValue(int(self.thermal_cam.ema_alpha * 1000))
+
+        self.max_edge_slider.setMinimum(0)
+        self.max_edge_slider.setMaximum(100) # Represents 0.00 to 1.00
+        self.max_edge_slider.setValue(int(self.thermal_cam.max_edge_percentage * 100))
+
+        self.threshold_adjustment_step_slider.setMinimum(1)
+        self.threshold_adjustment_step_slider.setMaximum(20) # Example range
+        self.threshold_adjustment_step_slider.setValue(self.thermal_cam.threshold_adjustment_step)
+
         self.init_connections()
         self.update_edge_controls_state() # 초기 UI 상태 설정
 
@@ -74,6 +87,11 @@ class ThermalViewerApp(QMainWindow):
 
         # Super Resolution control
         self.super_resolution_button.clicked.connect(self.toggle_super_resolution)
+
+        # New slider connections for auto edge mode
+        self.ema_alpha_slider.valueChanged.connect(self.update_ema_alpha)
+        self.max_edge_slider.valueChanged.connect(self.update_max_edge_percentage)
+        self.threshold_adjustment_step_slider.valueChanged.connect(self.update_threshold_adjustment_step)
 
     def init_state(self):
         # .ui 파일의 기본값으로 처리되지 않는 위젯의 초기 상태를 설정합니다.
@@ -129,6 +147,21 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam.super_resolution_enabled = checked
         self.super_resolution_button.setText("SR On" if checked else "SR Off")
 
+    def update_ema_alpha(self, value):
+        self.thermal_cam.ema_alpha = value / 1000.0
+        # Optionally update a label to show the current value
+        # self.ema_alpha_label.setText(f"EMA Alpha: {self.thermal_cam.ema_alpha:.3f}")
+
+    def update_max_edge_percentage(self, value):
+        self.thermal_cam.max_edge_percentage = value / 100.0
+        # Optionally update a label to show the current value
+        # self.max_edge_label.setText(f"Max Edge %: {self.thermal_cam.max_edge_percentage:.2f}")
+
+    def update_threshold_adjustment_step(self, value):
+        self.thermal_cam.threshold_adjustment_step = value
+        # Optionally update a label to show the current value
+        # self.threshold_adjustment_step_label.setText(f"Adj Step: {self.thermal_cam.threshold_adjustment_step}")
+
     def update_edge_controls_state(self):
         edges_on = self.edge_mode_button.isChecked()
         is_manual = not self.edge_auto_manual_button.isChecked()
@@ -142,6 +175,12 @@ class ThermalViewerApp(QMainWindow):
         self.t2_label.setEnabled(sliders_enabled)
         self.t2_slider.setEnabled(sliders_enabled)
         self.t2_spinbox.setEnabled(sliders_enabled)
+
+        # Enable/disable new sliders based on edge_detection_enabled and auto mode
+        auto_edge_sliders_enabled = edges_on and (not is_manual) # Enabled when edge detection is ON and in AUTO mode
+        self.ema_alpha_slider.setEnabled(auto_edge_sliders_enabled)
+        self.max_edge_slider.setEnabled(auto_edge_sliders_enabled)
+        self.threshold_adjustment_step_slider.setEnabled(auto_edge_sliders_enabled)
 
     def toggle_edge_mode(self, checked):
         self.thermal_cam.edge_detection_enabled = checked
