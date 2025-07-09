@@ -25,9 +25,18 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam.edge_color = (0, 255, 0) # BGR format for OpenCV
         self.thermal_cam.edge_thickness = 1
         self.thermal_cam.super_resolution_enabled = False # Default to off
-        self.super_resolution_button.setCheckable(True) # Make the button toggleable
-        self.super_resolution_button.setChecked(False) # Initial state
-        self.super_resolution_button.setText("SR Off") # Initial text
+        
+        # Configure Super Resolution buttons
+        self.super_resolution_button.setCheckable(True) # Bicubic SR button
+        self.super_resolution_button.setChecked(False)
+        self.super_resolution_button.setText("SR Bicubic Off")
+
+        self.super_resolution_button2.setCheckable(True) # SRCNN button
+        self.super_resolution_button2.setChecked(False)
+        self.super_resolution_button2.setText("SR SRCNN Off")
+
+        # Initialize SR method in thermal_cam to None
+        self.thermal_cam.set_sr_method_none()
 
         # Configure edge_thickness_spinbox and slider
         self.edge_thickness_spinbox.setMinimum(1)
@@ -78,15 +87,16 @@ class ThermalViewerApp(QMainWindow):
         # 새 프레임으로 UI를 업데이트하기 위한 타이머
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_image_display)
-        self.update_timer.start(30) # 30ms마다 업데이트 (약 33 FPS)
+        self.update_timer.start(50) # 50ms마다 업데이트 (약 20 FPS)
 
         # Edge Color and Thickness controls
         self.edge_color_button.clicked.connect(self.select_edge_color)
         self.edge_thickness_spinbox.valueChanged.connect(self.update_edge_thickness)
         self.edge_thickness_slider.valueChanged.connect(self.update_edge_thickness)
 
-        # Super Resolution control
-        self.super_resolution_button.clicked.connect(self.toggle_super_resolution)
+        # Super Resolution controls
+        self.super_resolution_button.clicked.connect(lambda: self.on_sr_button_clicked(self.super_resolution_button))
+        self.super_resolution_button2.clicked.connect(lambda: self.on_sr_button_clicked(self.super_resolution_button2))
 
         # New slider connections for auto edge mode
         self.ema_alpha_slider.valueChanged.connect(self.update_ema_alpha)
@@ -142,10 +152,29 @@ class ThermalViewerApp(QMainWindow):
 
         # Optionally, update a label to show current thickness if needed
 
-    def toggle_super_resolution(self):
-        checked = self.super_resolution_button.isChecked()
-        self.thermal_cam.super_resolution_enabled = checked
-        self.super_resolution_button.setText("SR On" if checked else "SR Off")
+    def on_sr_button_clicked(self, clicked_button):
+        if clicked_button == self.super_resolution_button: # Bicubic button clicked
+            if clicked_button.isChecked():
+                self.thermal_cam.set_sr_method_bicubic()
+                self.super_resolution_button2.setChecked(False)
+                self.super_resolution_button.setText("SR Bicubic On")
+                self.super_resolution_button2.setText("SR SRCNN Off")
+            else:
+                self.thermal_cam.set_sr_method_none()
+                self.super_resolution_button.setText("SR Bicubic Off")
+        elif clicked_button == self.super_resolution_button2: # ESPCN button clicked
+            if clicked_button.isChecked():
+                self.thermal_cam.set_sr_method_espcn()
+                self.super_resolution_button.setChecked(False)
+                self.super_resolution_button2.setText("SR ESPCN On")
+                self.super_resolution_button.setText("SR Bicubic Off")
+                self.thermal_cam.save_sr_debug_images = True # Set flag to save debug images
+            else:
+                self.thermal_cam.set_sr_method_none()
+                self.super_resolution_button2.setText("SR ESPCN Off")
+        
+        # Update super_resolution_enabled based on whether any SR method is active
+        self.thermal_cam.super_resolution_enabled = self.super_resolution_button.isChecked() or self.super_resolution_button2.isChecked()
 
     def update_ema_alpha(self, value):
         self.thermal_cam.ema_alpha = value / 1000.0
@@ -240,11 +269,17 @@ class ThermalViewerApp(QMainWindow):
     @asyncSlot()
     async def connect_camera(self):
         try:
+            # UI의 ip_address_input에서 IP 주소를 가져옵니다.
+            ip_address = self.ip_address_input.text()
+            
+            # ThermalCam 객체에 IP 주소를 설정합니다.
+            self.thermal_cam.host = ip_address
+            
             await self.thermal_cam.connect()
             self.connect_button.setEnabled(False)
             self.disconnect_button.setEnabled(True)
             self.start_stream_button.setEnabled(True)
-            print("Camera connected successfully.")
+            print(f"Camera connected successfully to {ip_address}.")
             fw_version = self.thermal_cam.get_firmware_version()
             cam_info = self.thermal_cam.get_camera_info()
             print(f"Firmware Version: {fw_version}")
@@ -325,6 +360,12 @@ class ThermalViewerApp(QMainWindow):
                 self.t1_label.setText(f"Threshold 1: {display_values['edge_t1']}")
                 self.t2_label.setText(f"Threshold 2: {display_values['edge_t2']}")
             # Manual Edge 모드이거나 Edge Detection이 비활성화되어 있을 때는 update_canny_t1/t2에서 업데이트되거나 비활성화됩니다.
+
+            print(f"[Debug] In update_image_display, edged_image shape: {edged_image.shape}, dtype: {edged_image.dtype}")
+            
+            # Ensure the image is 3-channel BGR for QImage display
+            if len(edged_image.shape) == 2: # Grayscale image
+                edged_image = cv2.cvtColor(edged_image, cv2.COLOR_GRAY2BGR)
 
             height, width, channel = edged_image.shape
             bytes_per_line = 3 * width

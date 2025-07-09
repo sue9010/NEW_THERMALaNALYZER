@@ -2,4 +2,13 @@
 .vs/
 
 # Python 가상환경
-venv/
+venv_thermal/
+
+__pycache__/
+
+
+models/
+
+-p/
+
+.pyc

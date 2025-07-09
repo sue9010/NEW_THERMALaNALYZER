@@ -5,6 +5,7 @@ import time
 import cv2  # Add OpenCV import
 import numpy as np
 
+
 from new_sample.thermalcamera_lib.define_constants import (
     THERMAL_PACKET_HEADER_SIZE,
     THERMAL_PACKET_ID,
@@ -29,9 +30,13 @@ class ThermalCam:
         self.camera_config = None
         self.system_info = None
         self.image_dimensions = {"width": 0, "height": 0}
+        self.sr_net = None # Initialize SR DNN model
+        self.sr_scale_factor = 2 # SRCNN upscaling factor (e.g., 2x, 3x, 4x)
+        self.sr_method = "ESPCN" # Default SR method: "ESPCN" or "Bicubic"
         self.received_data = asyncio.Queue()
         self.listener_task = None
         self.temp_lookup_table = None  # Initialize temp_lookup_table
+        self.save_sr_debug_images = False # Flag to save SR debug images
         self.canny_threshold1 = 50
         self.canny_threshold2 = 150
         self.agc_mode = "auto"  # 'auto' or 'manual'
@@ -277,10 +282,35 @@ class ThermalCam:
         )
         return grayscale_image
 
+    
+
     def reset_ema_state(self):
         self.ema_lower_threshold = 0.0
         self.ema_upper_threshold = 0.0
         self.frame_count_for_ema = 0
+
+    def _load_espcn_model(self):
+        if self.sr_net is None:
+            print("Loading ESPCN model...")
+            model_path = "models/ESPCN-x2-rgb.onnx" # Path to your ONNX ESPCN model
+            try:
+                self.sr_net = cv2.dnn.readNet(model_path)
+                print(f"ESPCN model loaded successfully from {model_path}")
+            except Exception as e:
+                print(f"Error loading ESPCN model: {e}. Please ensure the file exists and is valid.")
+            print("ESPCN model loaded.")
+
+    def set_sr_method_espcn(self):
+        self.sr_method = "ESPCN"
+        print("SR method set to ESPCN.")
+
+    def set_sr_method_bicubic(self):
+        self.sr_method = "Bicubic"
+        print("SR method set to Bicubic interpolation.")
+
+    def set_sr_method_none(self):
+        self.sr_method = "None"
+        print("SR method set to None.")
 
     def _draw_edges_on_image(self, celsius_data: np.ndarray) -> tuple[np.ndarray, dict]:
         display_values = {
@@ -308,16 +338,64 @@ class ThermalCam:
             # Apply CLAHE to enhance local contrast.
             normalized_celsius = self.clahe.apply(base_gray_image)
 
-            # Apply Super Resolution if enabled
+            # Apply Super Resolution if enabled and a method is selected
             if self.super_resolution_enabled:
-                scale_factor = 2
-                new_width = int(normalized_celsius.shape[1] * scale_factor)
-                new_height = int(normalized_celsius.shape[0] * scale_factor)
-                normalized_celsius = cv2.resize(
-                    normalized_celsius,
-                    (new_width, new_height),
-                    interpolation=cv2.INTER_CUBIC,
-                )
+                # Save image before SR if debug flag is set
+                if self.save_sr_debug_images:
+                    # Ensure it's 3-channel for saving as JPG
+                    before_sr_image_display = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    cv2.imwrite("sr_before.jpg", before_sr_image_display)
+                    print("Saved sr_before.jpg")
+
+                if self.sr_method == "ESPCN":
+                    self._load_espcn_model()
+                    if self.sr_net:
+                        input_for_sr = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False) # 픽셀 값 정규화 및 채널 변경
+                        self.sr_net.setInput(blob)
+                        
+                        super_resolved_output = self.sr_net.forward()
+                        print(f"[Debug] super_resolved_output shape: {super_resolved_output.shape}")
+                        
+                        super_resolved_image = super_resolved_output[0, :, :, :]
+                        # Transpose from (C, H, W) to (H, W, C) for OpenCV
+                        super_resolved_image = np.transpose(super_resolved_image, (1, 2, 0))
+                        # Rescale from [0, 1] float to [0, 255] uint8
+                        super_resolved_image = np.clip(super_resolved_image * 255, 0, 255).astype(np.uint8)
+
+                        # Check if the super_resolved_image is mostly black
+                        if np.mean(super_resolved_image) < 10: # Threshold for "mostly black"
+                            print("Warning: ESPCN output is mostly black. Falling back to original image.")
+                            normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        else:
+                            normalized_celsius = super_resolved_image.copy()
+                        
+                        print(f"[Debug] After SR, normalized_celsius shape: {normalized_celsius.shape}, dtype: {normalized_celsius.dtype}")
+                    else:
+                        print("ESPCN model not loaded. Cannot apply ESPCN. Falling back to no SR.")
+                        normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                elif self.sr_method == "Bicubic":
+                    print("Applying bicubic interpolation for Super Resolution.")
+                    scale_factor = self.sr_scale_factor
+                    new_width = int(normalized_celsius.shape[1] * scale_factor)
+                    new_height = int(normalized_celsius.shape[0] * scale_factor)
+                    normalized_celsius = cv2.resize(
+                        normalized_celsius,
+                        (new_width, new_height),
+                        interpolation=cv2.INTER_CUBIC,
+                    )
+                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                else:
+                    print("Super Resolution is enabled but no valid method selected (SRCNN/Bicubic). No SR applied.")
+                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+            else: # SR not enabled, ensure normalized_celsius is 3-channel for consistency
+                normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+
+            # Save image after SR if debug flag is set
+            if self.save_sr_debug_images:
+                cv2.imwrite("sr_after.jpg", normalized_celsius)
+                print("Saved sr_after.jpg")
+                self.save_sr_debug_images = False # Reset flag after saving
 
             # Capture min/max values for display
             display_values["agc_min"] = celsius_data.min()
@@ -338,23 +416,70 @@ class ThermalCam:
                     / (self.manual_agc_max - self.manual_agc_min)
                 ).astype(np.uint8)
 
-            # Apply Super Resolution if enabled
+            # Apply Super Resolution if enabled and a method is selected
             if self.super_resolution_enabled:
-                scale_factor = 2
-                new_width = int(normalized_celsius.shape[1] * scale_factor)
-                new_height = int(normalized_celsius.shape[0] * scale_factor)
-                normalized_celsius = cv2.resize(
-                    normalized_celsius,
-                    (new_width, new_height),
-                    interpolation=cv2.INTER_CUBIC,
-                )
+                # Save image before SR if debug flag is set
+                if self.save_sr_debug_images:
+                    before_sr_image_display = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    cv2.imwrite("sr_before.jpg", before_sr_image_display)
+                    print("Saved sr_before.jpg")
+
+                if self.sr_method == "ESPCN":
+                    self._load_espcn_model()
+                    if self.sr_net:
+                        input_for_sr = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False) # 픽셀 값 정규화 및 채널 변경
+                        self.sr_net.setInput(blob)
+                        
+                        super_resolved_output = self.sr_net.forward()
+                        print(f"[Debug] super_resolved_output shape: {super_resolved_output.shape}")
+                        
+                        super_resolved_image = super_resolved_output[0, :, :, :]
+                        # Transpose from (C, H, W) to (H, W, C) for OpenCV
+                        super_resolved_image = np.transpose(super_resolved_image, (1, 2, 0))
+                        # Rescale from [0, 1] float to [0, 255] uint8
+                        super_resolved_image = np.clip(super_resolved_image * 255, 0, 255).astype(np.uint8)
+
+                        if np.mean(super_resolved_image) < 10: # Threshold for "mostly black"
+                            print("Warning: ESPCN output is mostly black. Falling back to original image.")
+                            normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        else:
+                            normalized_celsius = super_resolved_image.copy()
+                        
+                        print(f"[Debug] After SR, normalized_celsius shape: {normalized_celsius.shape}, dtype: {normalized_celsius.dtype}")
+                    else:
+                        print("ESPCN model not loaded. Cannot apply ESPCN. Falling back to no SR.")
+                        normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                elif self.sr_method == "Bicubic":
+                    print("Applying bicubic interpolation for Super Resolution.")
+                    scale_factor = self.sr_scale_factor
+                    new_width = int(normalized_celsius.shape[1] * scale_factor)
+                    new_height = int(normalized_celsius.shape[0] * scale_factor)
+                    normalized_celsius = cv2.resize(
+                        normalized_celsius,
+                        (new_width, new_height),
+                        interpolation=cv2.INTER_CUBIC,
+                    )
+                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                else:
+                    print("Super Resolution is enabled but no valid method selected (SRCNN/Bicubic). No SR applied.")
+                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+            else: # SR not enabled, ensure normalized_celsius is 3-channel for consistency
+                normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+
+            # Save image after SR if debug flag is set
+            if self.save_sr_debug_images:
+                cv2.imwrite("sr_after.jpg", normalized_celsius)
+                print("Saved sr_after.jpg")
+                self.save_sr_debug_images = False # Reset flag after saving
 
             # Capture min/max values for display
             display_values["agc_min"] = self.manual_agc_min
             display_values["agc_max"] = self.manual_agc_max
 
-        # Create a 3-channel image from the normalized grayscale image
-        colored_image = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+        # The super-resolved image is already 3-channel (HWC), so use it directly
+        # This line is now redundant as normalized_celsius is already 3-channel
+        colored_image = normalized_celsius
 
         # Apply edge detection if enabled
         if self.edge_detection_enabled:
@@ -394,11 +519,14 @@ class ThermalCam:
                 display_values["edge_t1"] = lower
                 display_values["edge_t2"] = upper
 
+            # Convert to grayscale for Canny edge detection if it's a 3-channel image
+            if len(normalized_celsius.shape) == 3 and normalized_celsius.shape[2] == 3:
+                gray_for_canny = cv2.cvtColor(normalized_celsius, cv2.COLOR_BGR2GRAY)
+            else:
+                gray_for_canny = normalized_celsius # Already grayscale or 1-channel
+
             # Apply a small Gaussian blur (3x3 kernel) to suppress noise before Canny.
-            # This blur is applied only to the image used for edge detection,
-            # not to the final displayed background image.
-            # edge 계산시 노이즈 무시 크기
-            blurred_for_canny = cv2.GaussianBlur(normalized_celsius, (3, 3), 0)
+            blurred_for_canny = cv2.GaussianBlur(gray_for_canny, (3, 3), 0)
 
             # Apply Canny edge detection
             edges = cv2.Canny(blurred_for_canny, lower, upper)
@@ -428,28 +556,10 @@ class ThermalCam:
             # 3. 다음 프레임에 적용 (lower, upper 변수가 이미 EMA 값을 사용하도록 설정되어 있으므로,
             #    여기서 조정된 self.ema_lower_threshold와 self.ema_upper_threshold가 다음 프레임에 반영됨)
 
-            # Apply thinning to make edges 1-pixel wide
-            try:
-                # Ensure edges is a binary image (0 or 255) for thinning
-                edges_binary = (edges > 0).astype(np.uint8) * 255
-                thinned_edges = cv2.ximgproc.thinning(edges_binary)
-                # Use thinned_edges for contour finding
-                contours, _ = cv2.findContours(
-                    thinned_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
-            except AttributeError:
-                print(
-                    "cv2.ximgproc.thinning not found. Please ensure opencv-contrib-python is installed."
-                )
-                # Fallback to unthinned edges if thinning fails
-                contours, _ = cv2.findContours(
-                    edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
-            except Exception as e:
-                print(f"Error during thinning: {e}")
-                contours, _ = cv2.findContours(
-                    edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-                )
+            # Use edges directly for contour finding (thinning removed for performance)
+            contours, _ = cv2.findContours(
+                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
 
             # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
             cv2.drawContours(
@@ -461,6 +571,7 @@ class ThermalCam:
                 lineType=cv2.LINE_AA,
             )
 
+        print(f"[Debug] Before return, colored_image shape: {colored_image.shape}, dtype: {colored_image.dtype}")
         return colored_image, display_values
 
     async def get_thermal_image(self):
