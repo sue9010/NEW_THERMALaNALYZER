@@ -67,8 +67,6 @@ class ThermalViewerApp(QMainWindow):
         # UI 요소의 시그널을 슬롯(메서드)에 연결합니다.
         self.connect_button.clicked.connect(self.connect_camera)
         self.disconnect_button.clicked.connect(self.disconnect_camera)
-        self.start_stream_button.clicked.connect(self.start_stream)
-        self.stop_stream_button.clicked.connect(self.stop_stream)
 
         self.t1_slider.valueChanged.connect(self.update_canny_t1)
         self.t1_spinbox.valueChanged.connect(self.update_canny_t1)
@@ -273,10 +271,18 @@ class ThermalViewerApp(QMainWindow):
             self.thermal_cam.host = ip_address
             
             await self.thermal_cam.connect()
+            print(f"Camera connected successfully to {ip_address}.")
+
+            # Start stream automatically
+            if self.stream_task and not self.stream_task.done():
+                print("Stream already running.")
+            else:
+                self.stream_task = asyncio.create_task(self.thermal_cam.start_stream_continuous(self.frame_queue))
+                print("Stream started.")
+
             self.connect_button.setEnabled(False)
             self.disconnect_button.setEnabled(True)
-            self.start_stream_button.setEnabled(True)
-            print(f"Camera connected successfully to {ip_address}.")
+            
             fw_version = self.thermal_cam.get_firmware_version()
             cam_info = self.thermal_cam.get_camera_info()
             print(f"Firmware Version: {fw_version}")
@@ -284,59 +290,32 @@ class ThermalViewerApp(QMainWindow):
             for key, value in cam_info.items():
                 print(f"  {key}: {value}")
 
-            self.image_label.setText("Ready to stream")
+            self.image_label.setText("Streaming...")
 
         except Exception as e:
             print(f"Failed to connect to camera: {e}")
             self.connect_button.setEnabled(True)
             self.disconnect_button.setEnabled(False)
-            self.start_stream_button.setEnabled(False)
 
     @asyncSlot()
     async def disconnect_camera(self):
+        # Stop stream automatically
         if self.stream_task:
             self.stream_task.cancel()
             try:
                 await self.stream_task
             except asyncio.CancelledError:
-                pass # 정상적인 취소
+                pass # Cancellation is expected
             self.stream_task = None
+            print("Stream stopped.")
+
         await self.thermal_cam.disconnect()
+        
         self.connect_button.setEnabled(True)
         self.disconnect_button.setEnabled(False)
-        self.start_stream_button.setEnabled(False)
-        self.stop_stream_button.setEnabled(False)
         self.image_label.clear()
         self.image_label.setText("No Image")
         print("Camera disconnected.")
-
-    @asyncSlot()
-    async def start_stream(self):
-        if not self.thermal_cam.is_connected:
-            print("Camera not connected.")
-            return
-        
-        if self.stream_task and not self.stream_task.done():
-            print("Stream already running.")
-            return
-
-        self.start_stream_button.setEnabled(False)
-        self.stop_stream_button.setEnabled(True)
-        self.stream_task = asyncio.create_task(self.thermal_cam.start_stream_continuous(self.frame_queue))
-        print("Stream started.")
-
-    @asyncSlot()
-    async def stop_stream(self):
-        if self.stream_task:
-            self.stream_task.cancel()
-            try:
-                await self.stream_task
-            except asyncio.CancelledError:
-                pass # 정상적인 취소
-            self.stream_task = None
-        self.start_stream_button.setEnabled(True)
-        self.stop_stream_button.setEnabled(False)
-        print("Stream stopped.")
 
     def update_image_display(self):
         try:
