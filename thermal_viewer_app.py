@@ -2,8 +2,8 @@ import sys
 import asyncio
 import numpy as np
 import cv2
-from PyQt5.QtWidgets import QApplication, QMainWindow
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtWidgets import QApplication, QMainWindow, QColorDialog
+from PyQt5.QtGui import QImage, QPixmap, QColor
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5 import uic
 from qasync import QEventLoop, asyncSlot
@@ -20,6 +20,19 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam = ThermalCam()
         self.frame_queue = asyncio.Queue()
         self.stream_task = None
+
+        # Default edge color (green) and thickness
+        self.thermal_cam.edge_color = (0, 255, 0) # BGR format for OpenCV
+        self.thermal_cam.edge_thickness = 1
+
+        # Configure edge_thickness_spinbox and slider
+        self.edge_thickness_spinbox.setMinimum(1)
+        self.edge_thickness_spinbox.setMaximum(10) # Example max thickness
+        self.edge_thickness_spinbox.setValue(self.thermal_cam.edge_thickness)
+
+        self.edge_thickness_slider.setMinimum(1)
+        self.edge_thickness_slider.setMaximum(10) # Example max thickness
+        self.edge_thickness_slider.setValue(self.thermal_cam.edge_thickness)
 
         self.init_connections()
         self.update_edge_controls_state() # 초기 UI 상태 설정
@@ -50,6 +63,11 @@ class ThermalViewerApp(QMainWindow):
         self.update_timer.timeout.connect(self.update_image_display)
         self.update_timer.start(30) # 30ms마다 업데이트 (약 33 FPS)
 
+        # Edge Color and Thickness controls
+        self.edge_color_button.clicked.connect(self.select_edge_color)
+        self.edge_thickness_spinbox.valueChanged.connect(self.update_edge_thickness)
+        self.edge_thickness_slider.valueChanged.connect(self.update_edge_thickness)
+
     def init_state(self):
         # .ui 파일의 기본값으로 처리되지 않는 위젯의 초기 상태를 설정합니다.
         self.agc_min_label.setEnabled(False)
@@ -74,6 +92,30 @@ class ThermalViewerApp(QMainWindow):
             self.t2_slider.setValue(value)
         if self.t2_spinbox.value() != value:
             self.t2_spinbox.setValue(value)
+
+    def select_edge_color(self):
+        color = QColorDialog.getColor(QColor(*self.thermal_cam.edge_color[::-1]), self, "Select Edge Color") # OpenCV uses BGR, QColor uses RGB
+        if color.isValid():
+            # Convert QColor (RGB) to OpenCV BGR format
+            self.thermal_cam.edge_color = (color.blue(), color.green(), color.red())
+            # Optionally, update the button's background color to reflect the selection
+            self.edge_color_button.setStyleSheet(f"background-color: {color.name()};")
+
+    def update_edge_thickness(self, value):
+        self.thermal_cam.edge_thickness = value
+
+        # Synchronize spinbox and slider
+        if self.edge_thickness_spinbox.value() != value:
+            self.edge_thickness_spinbox.blockSignals(True)
+            self.edge_thickness_spinbox.setValue(value)
+            self.edge_thickness_spinbox.blockSignals(False)
+
+        if self.edge_thickness_slider.value() != value:
+            self.edge_thickness_slider.blockSignals(True)
+            self.edge_thickness_slider.setValue(value)
+            self.edge_thickness_slider.blockSignals(False)
+
+        # Optionally, update a label to show current thickness if needed
 
     def update_edge_controls_state(self):
         edges_on = self.edge_mode_button.isChecked()

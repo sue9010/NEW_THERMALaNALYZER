@@ -43,6 +43,8 @@ class ThermalCam:
         self.ema_upper_threshold = 0.0
         self.ema_alpha = 0.001  # Smoothing factor (0.0 to 1.0). Lower = more smoothing. edge 변경 속도 제어
         self.frame_count_for_ema = 0  # To handle the first frame
+        self.edge_color = (0, 255, 0) # Default green, BGR
+        self.edge_thickness = 1 # Default 1 pixel
 
     async def _listener(self):
         try:
@@ -400,7 +402,7 @@ class ThermalCam:
 
             # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
             cv2.drawContours(
-                colored_image, contours, -1, (0, 255, 0), 1, lineType=cv2.LINE_AA
+                colored_image, contours, -1, self.edge_color, self.edge_thickness, lineType=cv2.LINE_AA
             )
 
         return colored_image, display_values
