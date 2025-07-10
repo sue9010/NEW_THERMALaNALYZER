@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>804</width>
-    <height>803</height>
+    <width>798</width>
+    <height>846</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -66,26 +66,19 @@
          </widget>
         </item>
         <item>
-         <spacer name="verticalSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
+         <widget class="QPushButton" name="super_resolution_button">
+          <property name="text">
+           <string>Super resolution</string>
           </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
+         </widget>
         </item>
-       </layout>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="edge_layout">
-      <item>
-       <layout class="QVBoxLayout" name="edge_buttons_layout">
+        <item>
+         <widget class="QPushButton" name="super_resolution_button2">
+          <property name="text">
+           <string>Super resolution 2</string>
+          </property>
+         </widget>
+        </item>
         <item>
          <widget class="QPushButton" name="edge_mode_button">
           <property name="minimumSize">
@@ -121,7 +114,50 @@
           </property>
          </widget>
         </item>
+        <item>
+         <widget class="QPushButton" name="agc_mode_button">
+          <property name="minimumSize">
+           <size>
+            <width>130</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>Set Manual AGC</string>
+          </property>
+          <property name="checkable">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="bilateral_filter_button">
+          <property name="text">
+           <string>노이즈 리덕션</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="verticalSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
        </layout>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="edge_layout">
+      <item>
+       <layout class="QVBoxLayout" name="edge_buttons_layout"/>
       </item>
       <item>
        <layout class="QVBoxLayout" name="t1_layout">
@@ -194,69 +230,7 @@
      </layout>
     </item>
     <item>
-     <layout class="QGridLayout" name="gridLayout">
-      <item row="1" column="2">
-       <widget class="QSlider" name="ema_alpha_slider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QSlider" name="max_edge_slider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QSlider" name="threshold_adjustment_step_slider">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="0">
-       <widget class="QLabel" name="max_edge_label">
-        <property name="text">
-         <string>Max edge: </string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QLabel" name="threshold_adjustment_step_label">
-        <property name="text">
-         <string>Threadhold adjustment: </string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="2">
-       <widget class="QLabel" name="ema_alpha_label">
-        <property name="text">
-         <string>EMA: </string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
      <layout class="QHBoxLayout" name="agc_layout">
-      <item>
-       <widget class="QPushButton" name="agc_mode_button">
-        <property name="minimumSize">
-         <size>
-          <width>130</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="text">
-         <string>Set Manual AGC</string>
-        </property>
-        <property name="checkable">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
       <item>
        <layout class="QVBoxLayout" name="agc_min_layout">
         <item>
@@ -379,20 +353,103 @@
      </layout>
     </item>
     <item>
-     <layout class="QHBoxLayout" name="horizontalLayout_2">
-      <item>
-       <widget class="QPushButton" name="super_resolution_button">
-        <property name="text">
-         <string>Super resolution</string>
+     <layout class="QGridLayout" name="gridLayout">
+      <item row="1" column="2">
+       <widget class="QSlider" name="ema_alpha_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
         </property>
        </widget>
       </item>
-      <item>
-       <widget class="QPushButton" name="super_resolution_button2">
-        <property name="text">
-         <string>Super resolution 2</string>
+      <item row="1" column="0">
+       <widget class="QSlider" name="max_edge_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
         </property>
        </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSlider" name="threshold_adjustment_step_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="max_edge_label">
+        <property name="text">
+         <string>Max edge: </string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="threshold_adjustment_step_label">
+        <property name="text">
+         <string>Threadhold adjustment: </string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="ema_alpha_label">
+        <property name="text">
+         <string>EMA: </string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QGridLayout" name="noise_reduection_layout">
+      <item row="1" column="1">
+       <widget class="QSlider" name="bilateral_sigma_color_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="2">
+       <widget class="QSlider" name="bilateral_sigma_space_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="bilateral_sigma_space_label">
+        <property name="text">
+         <string>sigmaSpace:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QSlider" name="bilateral_d_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="bilateral_sigma_color_label">
+        <property name="text">
+         <string>sigmaColor:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="bilateral_d_label">
+        <property name="text">
+         <string>D:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QSpinBox" name="bilateral_d_spinbox"/>
+      </item>
+      <item row="2" column="1">
+       <widget class="QSpinBox" name="bilateral_sigma_color_spinbox"/>
+      </item>
+      <item row="2" column="2">
+       <widget class="QSpinBox" name="bilateral_sigma_space_spinbox"/>
       </item>
      </layout>
     </item>
@@ -403,7 +460,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>804</width>
+     <width>798</width>
      <height>21</height>
     </rect>
    </property>

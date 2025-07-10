@@ -22,6 +22,9 @@ class ThermalViewerApp(QMainWindow):
         self._setup_ui()
         self._connect_signals()
 
+        # Initialize status bar
+        self.statusBar()
+
     # region Setup Methods
     def _setup_ui(self):
         """Initializes UI elements, sets default values, and configures widget properties."""
@@ -51,7 +54,7 @@ class ThermalViewerApp(QMainWindow):
         self.edge_thickness_slider.setMaximum(10)
         self.edge_thickness_slider.setValue(self.thermal_cam.edge_thickness)
 
-        # Initialize new slider values
+        # Initialize new slider values for auto edge mode
         self.ema_alpha_slider.setMinimum(0)
         self.ema_alpha_slider.setMaximum(1000)
         self.ema_alpha_slider.setValue(int(self.thermal_cam.ema_alpha * 1000))
@@ -63,6 +66,32 @@ class ThermalViewerApp(QMainWindow):
         self.threshold_adjustment_step_slider.setMinimum(1)
         self.threshold_adjustment_step_slider.setMaximum(20)
         self.threshold_adjustment_step_slider.setValue(self.thermal_cam.threshold_adjustment_step)
+
+        # Bilateral Filter controls
+        self.bilateral_filter_button.setCheckable(True)
+        self.bilateral_filter_button.setChecked(False)
+        self.bilateral_filter_button.setText("Bilateral Filter Off")
+
+        self.bilateral_d_slider.setMinimum(1)
+        self.bilateral_d_slider.setMaximum(20)
+        self.bilateral_d_slider.setValue(9) # Default value
+        self.bilateral_d_spinbox.setMinimum(1)
+        self.bilateral_d_spinbox.setMaximum(20)
+        self.bilateral_d_spinbox.setValue(9) # Default value
+
+        self.bilateral_sigma_color_slider.setMinimum(1)
+        self.bilateral_sigma_color_slider.setMaximum(200)
+        self.bilateral_sigma_color_slider.setValue(75) # Default value
+        self.bilateral_sigma_color_spinbox.setMinimum(1)
+        self.bilateral_sigma_color_spinbox.setMaximum(200)
+        self.bilateral_sigma_color_spinbox.setValue(75) # Default value
+
+        self.bilateral_sigma_space_slider.setMinimum(1)
+        self.bilateral_sigma_space_slider.setMaximum(200)
+        self.bilateral_sigma_space_slider.setValue(75) # Default value
+        self.bilateral_sigma_space_spinbox.setMinimum(1)
+        self.bilateral_sigma_space_spinbox.setMaximum(200)
+        self.bilateral_sigma_space_spinbox.setValue(75) # Default value
 
         self._update_ui_state()
 
@@ -100,11 +129,32 @@ class ThermalViewerApp(QMainWindow):
         self.max_edge_slider.valueChanged.connect(self.update_max_edge_percentage)
         self.threshold_adjustment_step_slider.valueChanged.connect(self.update_threshold_adjustment_step)
 
+        # Bilateral Filter controls
+        self.bilateral_filter_button.clicked.connect(self.toggle_bilateral_filter)
+        self.bilateral_d_slider.valueChanged.connect(self.update_bilateral_d)
+        self.bilateral_d_spinbox.valueChanged.connect(self.update_bilateral_d)
+        self.bilateral_sigma_color_slider.valueChanged.connect(self.update_bilateral_sigma_color)
+        self.bilateral_sigma_color_spinbox.valueChanged.connect(self.update_bilateral_sigma_color)
+        self.bilateral_sigma_space_slider.valueChanged.connect(self.update_bilateral_sigma_space)
+        self.bilateral_sigma_space_spinbox.valueChanged.connect(self.update_bilateral_sigma_space)
+
         # Main update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_image_display)
         self.update_timer.start(50)
-    # endregion
+
+        # Status bar messages for sliders
+        self.t1_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("Canny 엣지 감지 하위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
+        self.t2_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("Canny 엣지 감지 상위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
+        self.edge_thickness_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("엣지 두께: 엣지 선의 두께를 조절합니다. 값이 클수록 선이 두꺼워집니다."))
+        self.agc_min_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("수동 AGC 최소 온도: 이 온도 이하의 픽셀은 검은색에 가깝게 표시됩니다."))
+        self.agc_max_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("수동 AGC 최대 온도: 이 온도 이상의 픽셀은 흰색에 가깝게 표시됩니다."))
+        self.ema_alpha_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("EMA 알파 값 (엣지 감지 평활화): 값이 낮을수록 엣지 감지 임계값 변화가 부드러워집니다."))
+        self.max_edge_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("최대 엣지 픽셀 비율: 화면에 표시될 엣지 픽셀의 최대 비율을 설정합니다. 이 비율을 초과하면 엣지 감지 임계값이 자동으로 높아집니다."))
+        self.threshold_adjustment_step_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("임계값 조정 단계: 자동 엣지 감지 시 임계값이 한 번에 조정되는 폭을 설정합니다."))
+        self.bilateral_d_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 직경 (d): 필터링에 사용되는 주변 픽셀의 크기입니다. 값이 클수록 더 넓은 영역의 노이즈가 제거되지만, 엣지가 약간 흐려질 수 있습니다."))
+        self.bilateral_sigma_color_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 색상 시그마 (sigmaColor): 색상(온도) 유사성 기준입니다. 값이 클수록 색상 차이가 큰 픽셀도 노이즈로 간주하여 제거합니다. 엣지 보존에 영향을 줍니다."))
+        self.bilateral_sigma_space_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 공간 시그마 (sigmaSpace): 공간적 거리 기준입니다. 값이 클수록 멀리 떨어진 픽셀도 필터링에 영향을 줍니다. 이미지가 더 부드러워집니다."))
     # endregion
 
     # region Connection Management
@@ -205,6 +255,7 @@ class ThermalViewerApp(QMainWindow):
         edges_on = self.edge_mode_button.isChecked()
         is_manual_edge = not self.edge_auto_manual_button.isChecked()
         is_manual_agc = self.agc_mode_button.isChecked()
+        bilateral_filter_on = self.bilateral_filter_button.isChecked()
 
         self.edge_auto_manual_button.setEnabled(edges_on and is_connected)
         
@@ -229,6 +280,18 @@ class ThermalViewerApp(QMainWindow):
         self.agc_max_slider.setEnabled(manual_agc_controls_enabled)
         self.agc_max_spinbox.setEnabled(manual_agc_controls_enabled)
 
+        # Bilateral Filter controls
+        bilateral_controls_enabled = bilateral_filter_on and is_connected
+        self.bilateral_d_label.setEnabled(bilateral_controls_enabled)
+        self.bilateral_d_slider.setEnabled(bilateral_controls_enabled)
+        self.bilateral_d_spinbox.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_color_label.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_color_slider.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_color_spinbox.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_space_label.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_space_slider.setEnabled(bilateral_controls_enabled)
+        self.bilateral_sigma_space_spinbox.setEnabled(bilateral_controls_enabled)
+
     # endregion
 
     # region Control Handlers
@@ -247,25 +310,23 @@ class ThermalViewerApp(QMainWindow):
                     widget.setValue(display_value)
                     widget.blockSignals(False)
             elif isinstance(widget, type(self.t1_label)): # QLabel
-                if is_float:
-                    widget.setText(f"{widget.objectName().replace('_label', '').replace('_', ' ').title()}: {current_value:.1f}°C")
-                else:
-                    widget.setText(f"{widget.objectName().replace('_label', '').replace('_', ' ').title()}: {current_value}")
+                # This part is now handled directly in the update methods for clarity
+                pass
 
     def _update_canny_threshold(self, threshold_type, value):
         if threshold_type == 1:
             self.thermal_cam.canny_threshold1 = value
             label = self.t1_label
-            slider = self.t1_slider
-            spinbox = self.t1_spinbox
+            # slider = self.t1_slider # Not needed for synchronization here
+            # spinbox = self.t1_spinbox # Not needed for synchronization here
         else: # threshold_type == 2
             self.thermal_cam.canny_threshold2 = value
             label = self.t2_label
-            slider = self.t2_slider
-            spinbox = self.t2_spinbox
+            # slider = self.t2_slider # Not needed for synchronization here
+            # spinbox = self.t2_spinbox # Not needed for synchronization here
         
         label.setText(f"Threshold {threshold_type}: {value}")
-        self._synchronize_widget_value(value, [slider, spinbox])
+        # self._synchronize_widget_value(value, [slider, spinbox]) # Handled by direct connection
 
     def select_edge_color(self):
         color = QColorDialog.getColor(QColor(*self.thermal_cam.edge_color[::-1]), self, "Select Edge Color")
@@ -337,16 +398,37 @@ class ThermalViewerApp(QMainWindow):
         if agc_type == 'min':
             self.thermal_cam.manual_agc_min = value
             label = self.agc_min_label
-            slider = self.agc_min_slider
-            spinbox = self.agc_min_spinbox
         else: # agc_type == 'max'
             self.thermal_cam.manual_agc_max = value
             label = self.agc_max_label
-            slider = self.agc_max_slider
-            spinbox = self.agc_max_spinbox
         
         label.setText(f"{agc_type.title()} Temp: {value:.1f}°C")
-        self._synchronize_widget_value(value, [slider, spinbox], is_float=True, multiplier=10)
+
+    def toggle_bilateral_filter(self, checked):
+        self.thermal_cam.bilateral_filter_enabled = checked
+        self.bilateral_filter_button.setText("Bilateral Filter On" if checked else "Bilateral Filter Off")
+        self._update_ui_state()
+
+    def update_bilateral_d(self, value):
+        self.thermal_cam.bilateral_d = value
+        self.bilateral_d_label.setText(f"Bilateral D: {value}")
+        self._synchronize_widget_value(value, [self.bilateral_d_slider, self.bilateral_d_spinbox])
+
+    def update_bilateral_sigma_color(self, value):
+        self.thermal_cam.bilateral_sigma_color = value
+        self.bilateral_sigma_color_label.setText(f"Sigma Color: {value}")
+        self._synchronize_widget_value(value, [self.bilateral_sigma_color_slider, self.bilateral_sigma_color_spinbox])
+
+    def update_bilateral_sigma_space(self, value):
+        self.thermal_cam.bilateral_sigma_space = value
+        self.bilateral_sigma_space_label.setText(f"Sigma Space: {value}")
+        self._synchronize_widget_value(value, [self.bilateral_sigma_space_slider, self.bilateral_sigma_space_spinbox])
+
+    # endregion
+
+    # region Utility Methods
+    def _show_message_in_statusbar(self, message, timeout=2000):
+        self.statusBar().showMessage(message, timeout)
     # endregion
 
     def closeEvent(self, event):
