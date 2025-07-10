@@ -1,14 +1,16 @@
-import sys
 import asyncio
-import numpy as np
+import sys
+
 import cv2
-from PyQt5.QtWidgets import QApplication, QMainWindow, QColorDialog
-from PyQt5.QtGui import QImage, QPixmap, QColor
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
+import numpy as np
 from PyQt5 import uic
+from PyQt5.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor, QImage, QPixmap
+from PyQt5.QtWidgets import QApplication, QColorDialog, QMainWindow
 from qasync import QEventLoop, asyncSlot
 
 from thermal_camera_client import ThermalCam
+
 
 class OptimizationWorker(QObject):
     finished = pyqtSignal(dict)
@@ -649,7 +651,7 @@ class ThermalViewerApp(QMainWindow):
             # 최적화된 값 적용 후 즉시 화면 업데이트
             self.update_image_display()
         else:
-            self._show_message_in_statusbar("최적화 실패 또는 결과 없음.")
+            self._show_message_in_statusbar("최적화 실패 또는 결과 없음..")
 
     # endregion
 
