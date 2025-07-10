@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>798</width>
-    <height>918</height>
+    <height>920</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -133,14 +133,28 @@
         <item>
          <widget class="QPushButton" name="bilateral_filter_button">
           <property name="text">
-           <string>노이즈 리덕션</string>
+           <string>Bilateral Filter On</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="show_bilateral_filter_button">
+          <property name="text">
+           <string>Show Bilateral Filter</string>
           </property>
          </widget>
         </item>
         <item>
          <widget class="QPushButton" name="unsharp_masking_button">
           <property name="text">
-           <string>언샤프 마스크</string>
+           <string>Unsharp Mask</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="optimize_filters_button">
+          <property name="text">
+           <string>Optimize Filters</string>
           </property>
          </widget>
         </item>

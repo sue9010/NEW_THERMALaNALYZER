@@ -4,11 +4,96 @@ import numpy as np
 import cv2
 from PyQt5.QtWidgets import QApplication, QMainWindow, QColorDialog
 from PyQt5.QtGui import QImage, QPixmap, QColor
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
 from PyQt5 import uic
 from qasync import QEventLoop, asyncSlot
 
 from thermal_camera_client import ThermalCam
+
+class OptimizationWorker(QObject):
+    finished = pyqtSignal(dict)
+    progress = pyqtSignal(str)
+
+    def __init__(self, sample_image, parent=None):
+        super().__init__(parent)
+        self.sample_image = sample_image
+
+    def _apply_filters_for_optimization(self, image, d, sc, ss, um_radius, um_amount):
+        processed_image = image.copy()
+
+        # Bilateral Filter 적용
+        if processed_image.dtype != np.uint8:
+            processed_image = processed_image.astype(np.uint8)
+        if len(processed_image.shape) == 2:
+            processed_image = cv2.cvtColor(processed_image, cv2.COLOR_GRAY2BGR)
+
+        processed_image = cv2.bilateralFilter(processed_image, d, sc, ss)
+
+        # Unsharp Mask 적용
+        if processed_image.dtype != np.uint8:
+            processed_image = processed_image.astype(np.uint8)
+        if len(processed_image.shape) == 3 and processed_image.shape[2] == 3:
+            gray_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = processed_image
+
+        blurred = cv2.GaussianBlur(gray_image, (0, 0), um_radius)
+        unsharp_mask = cv2.addWeighted(gray_image, 1.0 + um_amount, blurred, -um_amount, 0)
+
+        if len(processed_image.shape) == 3 and processed_image.shape[2] == 3:
+            unsharp_mask = cv2.cvtColor(unsharp_mask, cv2.COLOR_GRAY2BGR)
+        
+        return unsharp_mask
+
+    def run(self):
+        best_score = -1.0
+        best_params = {}
+
+        bilateral_d_values = [1, 3, 5, 7, 9]
+        bilateral_sigma_color_values = [25, 50, 75, 100]
+        bilateral_sigma_space_values = [25, 50, 75, 100]
+        unsharp_radius_values = [1, 3, 5, 7]
+        unsharp_amount_values = [0.5, 1.0, 1.5, 2.0]
+
+        total_combinations = (len(bilateral_d_values) * len(bilateral_sigma_color_values) *
+                              len(bilateral_sigma_space_values) * len(unsharp_radius_values) *
+                              len(unsharp_amount_values))
+        
+        current_combination = 0
+
+        for d in bilateral_d_values:
+            for sc in bilateral_sigma_color_values:
+                for ss in bilateral_sigma_space_values:
+                    for um_r in unsharp_radius_values:
+                        for um_a in unsharp_amount_values:
+                            current_combination += 1
+                            self.progress.emit(f"최적화 진행 중: {current_combination}/{total_combinations} 조합")
+
+                            try:
+                                filtered_image = self._apply_filters_for_optimization(
+                                    self.sample_image, d, sc, ss, um_r, um_a
+                                )
+
+                                if len(filtered_image.shape) == 3:
+                                    gray_filtered_image = cv2.cvtColor(filtered_image, cv2.COLOR_BGR2GRAY)
+                                else:
+                                    gray_filtered_image = filtered_image
+
+                                score = cv2.Laplacian(gray_filtered_image, cv2.CV_64F).var()
+
+                                if score > best_score:
+                                    best_score = score
+                                    best_params = {
+                                        "bilateral_d": d,
+                                        "bilateral_sigma_color": sc,
+                                        "bilateral_sigma_space": ss,
+                                        "unsharp_mask_radius": um_r,
+                                        "unsharp_mask_amount": um_a
+                                    }
+                            except Exception as e:
+                                print(f"Error during optimization with params {d, sc, ss, um_r, um_a}: {e}")
+                                continue
+        self.finished.emit(best_params)
 
 class ThermalViewerApp(QMainWindow):
     def __init__(self):
@@ -18,6 +103,7 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam = ThermalCam()
         self.frame_queue = asyncio.Queue()
         self.stream_task = None
+        self.last_processed_celsius_image = None # Store the last processed frame for optimization
 
         self._setup_ui()
         self._connect_signals()
@@ -71,6 +157,10 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_filter_button.setCheckable(True)
         self.bilateral_filter_button.setChecked(False)
         self.bilateral_filter_button.setText("Bilateral Filter Off")
+
+        self.show_bilateral_filter_button.setCheckable(True)
+        self.show_bilateral_filter_button.setChecked(False)
+        self.show_bilateral_filter_button.setText("Show Bilateral Filter Off")
 
         self.bilateral_d_slider.setMinimum(1)
         self.bilateral_d_slider.setMaximum(20)
@@ -158,12 +248,17 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_sigma_space_slider.valueChanged.connect(self.update_bilateral_sigma_space)
         self.bilateral_sigma_space_spinbox.valueChanged.connect(self.update_bilateral_sigma_space)
 
+        self.show_bilateral_filter_button.clicked.connect(self.toggle_show_bilateral_filter)
+
         # Unsharp Mask controls
         self.unsharp_masking_button.clicked.connect(self.toggle_unsharp_mask)
         self.unsharp_radius_slider.valueChanged.connect(self.update_unsharp_radius)
         self.unsharp_radius_spinbox.valueChanged.connect(self.update_unsharp_radius)
         self.unsharp_amount_slider.valueChanged.connect(self.update_unsharp_amount)
         self.unsharp_amount_spinbox.valueChanged.connect(self.update_unsharp_amount)
+
+        # Optimization button
+        self.optimize_filters_button.clicked.connect(self.start_optimization)
 
         # Main update timer
         self.update_timer = QTimer(self)
@@ -249,6 +344,7 @@ class ThermalViewerApp(QMainWindow):
                 return # 처리할 프레임이 없으면 종료
 
             celsius_image = self.thermal_cam._convert_raw_to_celsius(raw_frame)
+            self.last_processed_celsius_image = celsius_image.copy() # Store a copy
             
             edged_image, display_values = self.thermal_cam._draw_edges_on_image(celsius_image)
             
@@ -286,6 +382,7 @@ class ThermalViewerApp(QMainWindow):
         is_manual_edge = not self.edge_auto_manual_button.isChecked()
         is_manual_agc = self.agc_mode_button.isChecked()
         bilateral_filter_on = self.bilateral_filter_button.isChecked()
+        show_bilateral_filter_on = self.show_bilateral_filter_button.isChecked()
 
         self.edge_auto_manual_button.setEnabled(edges_on and is_connected)
         
@@ -322,6 +419,8 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_sigma_space_slider.setEnabled(bilateral_controls_enabled)
         self.bilateral_sigma_space_spinbox.setEnabled(bilateral_controls_enabled)
 
+        self.show_bilateral_filter_button.setEnabled(bilateral_filter_on and is_connected)
+
         # Unsharp Mask controls
         unsharp_mask_on = self.unsharp_masking_button.isChecked()
         unsharp_mask_controls_enabled = unsharp_mask_on and is_connected
@@ -331,6 +430,9 @@ class ThermalViewerApp(QMainWindow):
         self.unsharp_amount_label.setEnabled(unsharp_mask_controls_enabled)
         self.unsharp_amount_slider.setEnabled(unsharp_mask_controls_enabled)
         self.unsharp_amount_spinbox.setEnabled(unsharp_mask_controls_enabled)
+
+        # Optimization controls
+        self.optimize_filters_button.setEnabled(is_connected)
 
     # endregion
 
@@ -449,6 +551,11 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_filter_button.setText("Bilateral Filter On" if checked else "Bilateral Filter Off")
         self._update_ui_state()
 
+    def toggle_show_bilateral_filter(self, checked):
+        self.thermal_cam.show_bilateral_filter_enabled = checked
+        self.show_bilateral_filter_button.setText("Show Bilateral Filter On" if checked else "Show Bilateral Filter Off")
+        self._update_ui_state()
+
     def update_bilateral_d(self, value):
         self.thermal_cam.bilateral_d = value
         self.bilateral_d_label.setText(f"Bilateral D: {value}")
@@ -480,6 +587,69 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam.unsharp_mask_amount = value
         self.unsharp_amount_label.setText(f"Mask Amount: {value:.2f}")
         self._synchronize_widget_value(value, [self.unsharp_amount_slider, self.unsharp_amount_spinbox], is_float=True, multiplier=100)
+
+    def update_unsharp_amount(self, value):
+        if isinstance(value, int):
+            value = value / 100.0
+        self.thermal_cam.unsharp_mask_amount = value
+        self.unsharp_amount_label.setText(f"Mask Amount: {value:.2f}")
+        self._synchronize_widget_value(value, [self.unsharp_amount_slider, self.unsharp_amount_spinbox], is_float=True, multiplier=100)
+
+    @asyncSlot()
+    async def start_optimization(self):
+        if not self.thermal_cam.is_connected:
+            self._show_message_in_statusbar("카메라가 연결되어 있지 않습니다. 먼저 카메라를 연결하세요.")
+            return
+
+        # Get the latest frame for optimization
+        if self.last_processed_celsius_image is None:
+            self._show_message_in_statusbar("최적화에 사용할 프레임이 없습니다. 스트리밍 중인지 확인하세요.")
+            return
+
+        sample_image = self.last_processed_celsius_image.copy()
+        sample_image = cv2.normalize(sample_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        self._show_message_in_statusbar("최적 필터 파라미터 탐색 시작 (백그라운드)...")
+        self.optimize_filters_button.setEnabled(False) # Disable button during optimization
+
+        self.optimization_thread = QThread()
+        self.optimization_worker = OptimizationWorker(sample_image)
+        self.optimization_worker.moveToThread(self.optimization_thread)
+
+        self.optimization_thread.started.connect(self.optimization_worker.run)
+        self.optimization_worker.finished.connect(self._optimization_finished)
+        self.optimization_worker.finished.connect(self.optimization_thread.quit)
+        self.optimization_worker.finished.connect(self.optimization_worker.deleteLater)
+        self.optimization_thread.finished.connect(self.optimization_thread.deleteLater)
+        self.optimization_worker.progress.connect(self._show_message_in_statusbar)
+
+        self.optimization_thread.start()
+
+    def _optimization_finished(self, best_params):
+        self.optimize_filters_button.setEnabled(True) # Re-enable button
+
+        if best_params:
+            self._show_message_in_statusbar(f"최적화 완료! 최적 파라미터: {best_params}")
+            print(f"최적 파라미터: {best_params}")
+
+            # 찾은 최적 파라미터를 UI에 적용
+            self.thermal_cam.bilateral_d = best_params["bilateral_d"]
+            self.thermal_cam.bilateral_sigma_color = best_params["bilateral_sigma_color"]
+            self.thermal_cam.bilateral_sigma_space = best_params["bilateral_sigma_space"]
+            self.thermal_cam.unsharp_mask_radius = best_params["unsharp_mask_radius"]
+            self.thermal_cam.unsharp_mask_amount = best_params["unsharp_mask_amount"]
+
+            # UI 위젯 업데이트
+            self.bilateral_d_spinbox.setValue(best_params["bilateral_d"])
+            self.bilateral_sigma_color_spinbox.setValue(best_params["bilateral_sigma_color"])
+            self.bilateral_sigma_space_spinbox.setValue(best_params["bilateral_sigma_space"])
+            self.unsharp_radius_spinbox.setValue(best_params["unsharp_mask_radius"])
+            self.unsharp_amount_spinbox.setValue(best_params["unsharp_mask_amount"])
+
+            # 최적화된 값 적용 후 즉시 화면 업데이트
+            self.update_image_display()
+        else:
+            self._show_message_in_statusbar("최적화 실패 또는 결과 없음.")
 
     # endregion
 

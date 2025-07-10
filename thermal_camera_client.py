@@ -5,19 +5,12 @@ import time
 import cv2  # Add OpenCV import
 import numpy as np
 
-
 from new_sample.thermalcamera_lib.define_constants import (
-    THERMAL_PACKET_HEADER_SIZE,
-    THERMAL_PACKET_ID,
-)
+    THERMAL_PACKET_HEADER_SIZE, THERMAL_PACKET_ID)
 from new_sample.thermalcamera_lib.define_enums import MESSAGE_TYPE
 from new_sample.thermalcamera_lib.define_protocol import (
-    TPKT_CameraEnv,
-    TPKT_CameraSystemInfo,
-    TPKT_GetResolution,
-    TPKT_Header,
-    TPKT_RawDataTail,
-)
+    TPKT_CameraEnv, TPKT_CameraSystemInfo, TPKT_GetResolution, TPKT_Header,
+    TPKT_RawDataTail)
 
 
 class ThermalCam:
@@ -55,6 +48,7 @@ class ThermalCam:
 
         # Bilateral Filter parameters
         self.bilateral_filter_enabled = False
+        self.show_bilateral_filter_enabled = False # New attribute
         self.bilateral_d = 9  # Diameter of each pixel neighborhood
         self.bilateral_sigma_color = 75  # Filter sigma in the color space
         self.bilateral_sigma_space = 75  # Filter sigma in the coordinate space
@@ -313,7 +307,7 @@ class ThermalCam:
                         print("ESPCN model not loaded. Cannot apply ESPCN. Falling back to no SR.")
                         image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                 elif self.sr_method == "Bicubic":
-                    print("Applying bicubic interpolation for Super Resolution.")
+                    # print("Applying bicubic interpolation for Super Resolution.")
                     scale_factor = self.sr_scale_factor
                     new_width = int(image_for_display.shape[1] * scale_factor)
                     new_height = int(image_for_display.shape[0] * scale_factor)
@@ -407,19 +401,34 @@ class ThermalCam:
         # Create a copy of the image for edge detection processing
         image_for_edge_detection = image_for_display.copy()
 
-        # Apply Bilateral Filter if enabled, only to the image used for edge detection
+        # Apply Bilateral Filter if enabled
         if self.bilateral_filter_enabled:
+            # Ensure image_for_edge_detection is in the correct format for bilateral filter
             if image_for_edge_detection.dtype != np.uint8:
                 image_for_edge_detection = image_for_edge_detection.astype(np.uint8)
             if len(image_for_edge_detection.shape) == 2:
                 image_for_edge_detection = cv2.cvtColor(image_for_edge_detection, cv2.COLOR_GRAY2BGR)
 
+            # Apply filter to image_for_edge_detection
             image_for_edge_detection = cv2.bilateralFilter(
                 image_for_edge_detection,
                 self.bilateral_d,
                 self.bilateral_sigma_color,
                 self.bilateral_sigma_space,
             )
+
+            # If show_bilateral_filter_enabled is true, apply to image_for_display as well
+            if self.show_bilateral_filter_enabled:
+                if image_for_display.dtype != np.uint8:
+                    image_for_display = image_for_display.astype(np.uint8)
+                if len(image_for_display.shape) == 2:
+                    image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
+                image_for_display = cv2.bilateralFilter(
+                    image_for_display,
+                    self.bilateral_d,
+                    self.bilateral_sigma_color,
+                    self.bilateral_sigma_space,
+                )
 
         # Apply edge detection if enabled
         if self.edge_detection_enabled:
@@ -476,9 +485,9 @@ class ThermalCam:
             self.ema_lower_threshold = max(0, min(255, self.ema_lower_threshold))
             self.ema_upper_threshold = max(0, min(255, self.ema_upper_threshold))
 
-            print(
-                f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})"
-            )
+            # print(
+            #     f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})"
+            # )
 
             contours, _ = cv2.findContours(
                 edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -497,7 +506,7 @@ class ThermalCam:
         if self.unsharp_mask_enabled:
             image_for_display = self._apply_unsharp_mask(image_for_display)
 
-        print(f"[Debug] Before return, image_for_display shape: {image_for_display.shape}, dtype: {image_for_display.dtype}")
+        # print(f"[Debug] Before return, image_for_display shape: {image_for_display.shape}, dtype: {image_for_display.dtype}")
         return image_for_display, display_values
 
     def _apply_unsharp_mask(self, image: np.ndarray) -> np.ndarray:
