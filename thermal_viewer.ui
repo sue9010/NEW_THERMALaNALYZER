@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>798</width>
-    <height>846</height>
+    <height>918</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -138,6 +138,13 @@
          </widget>
         </item>
         <item>
+         <widget class="QPushButton" name="unsharp_masking_button">
+          <property name="text">
+           <string>언샤프 마스크</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <spacer name="verticalSpacer">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
@@ -156,9 +163,6 @@
     </item>
     <item>
      <layout class="QHBoxLayout" name="edge_layout">
-      <item>
-       <layout class="QVBoxLayout" name="edge_buttons_layout"/>
-      </item>
       <item>
        <layout class="QVBoxLayout" name="t1_layout">
         <item>
@@ -316,6 +320,54 @@
          </widget>
         </item>
        </layout>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QGridLayout" name="unsharp_mask_layout">
+      <item row="0" column="1">
+       <widget class="QLabel" name="unsharp_amount_label">
+        <property name="text">
+         <string>Mask Amount: </string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QSlider" name="unsharp_radius_slider">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSlider" name="unsharp_amount_slider">
+        <property name="maximum">
+         <number>300</number>
+        </property>
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="unsharp_radius_label">
+        <property name="text">
+         <string>Radious/Sigma: </string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QSpinBox" name="unsharp_radius_spinbox"/>
+      </item>
+      <item row="2" column="1">
+       <widget class="QDoubleSpinBox" name="unsharp_amount_spinbox">
+        <property name="maximum">
+         <double>3.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.010000000000000</double>
+        </property>
+       </widget>
       </item>
      </layout>
     </item>

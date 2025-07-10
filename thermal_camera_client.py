@@ -59,6 +59,11 @@ class ThermalCam:
         self.bilateral_sigma_color = 75  # Filter sigma in the color space
         self.bilateral_sigma_space = 75  # Filter sigma in the coordinate space
 
+        # Unsharp Mask parameters
+        self.unsharp_mask_enabled = False
+        self.unsharp_mask_radius = 5  # Gaussian blur kernel size
+        self.unsharp_mask_amount = 1.0  # Blended amount of the sharpened image
+
     async def _listener(self):
         try:
             while self.is_connected:
@@ -268,192 +273,163 @@ class ThermalCam:
 
         # Normalize Celsius data to 0-255 based on AGC mode
         if self.agc_mode == "auto":
-            # For Auto AGC, use Contrast Limited Adaptive Histogram Equalization (CLAHE)
-            # for superior real-time contrast enhancement.
-
-            # First, normalize the full-range float data to a standard 8-bit image.
-            # This preserves the dynamic range of the current scene.
             base_gray_image = cv2.normalize(
                 celsius_data, None, 0, 255, cv2.NORM_MINMAX
             ).astype(np.uint8)
 
-            # Create and cache a CLAHE object for efficiency.
             if not hasattr(self, "clahe"):
                 self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
-            # Apply CLAHE to enhance local contrast.
-            normalized_celsius = self.clahe.apply(base_gray_image)
+            image_for_display = self.clahe.apply(base_gray_image)
 
-            # Apply Super Resolution if enabled and a method is selected
             if self.super_resolution_enabled:
-                # Save image before SR if debug flag is set
                 if self.save_sr_debug_images:
-                    # Ensure it's 3-channel for saving as JPG
-                    before_sr_image_display = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    before_sr_image_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                     cv2.imwrite("sr_before.jpg", before_sr_image_display)
                     print("Saved sr_before.jpg")
 
                 if self.sr_method == "ESPCN":
                     self._load_espcn_model()
                     if self.sr_net:
-                        input_for_sr = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
-                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False) # 픽셀 값 정규화 및 채널 변경
+                        input_for_sr = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
+                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False)
                         self.sr_net.setInput(blob)
                         
                         super_resolved_output = self.sr_net.forward()
                         print(f"[Debug] super_resolved_output shape: {super_resolved_output.shape}")
                         
                         super_resolved_image = super_resolved_output[0, :, :, :]
-                        # Transpose from (C, H, W) to (H, W, C) for OpenCV
                         super_resolved_image = np.transpose(super_resolved_image, (1, 2, 0))
-                        # Rescale from [0, 1] float to [0, 255] uint8
                         super_resolved_image = np.clip(super_resolved_image * 255, 0, 255).astype(np.uint8)
 
-                        # Check if the super_resolved_image is mostly black
-                        if np.mean(super_resolved_image) < 10: # Threshold for "mostly black"
+                        if np.mean(super_resolved_image) < 10:
                             print("Warning: ESPCN output is mostly black. Falling back to original image.")
-                            normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                            image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                         else:
-                            normalized_celsius = super_resolved_image.copy()
+                            image_for_display = super_resolved_image.copy()
                         
-                        print(f"[Debug] After SR, normalized_celsius shape: {normalized_celsius.shape}, dtype: {normalized_celsius.dtype}")
+                        print(f"[Debug] After SR, image_for_display shape: {image_for_display.shape}, dtype: {image_for_display.dtype}")
                     else:
                         print("ESPCN model not loaded. Cannot apply ESPCN. Falling back to no SR.")
-                        normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                 elif self.sr_method == "Bicubic":
                     print("Applying bicubic interpolation for Super Resolution.")
                     scale_factor = self.sr_scale_factor
-                    new_width = int(normalized_celsius.shape[1] * scale_factor)
-                    new_height = int(normalized_celsius.shape[0] * scale_factor)
-                    normalized_celsius = cv2.resize(
-                        normalized_celsius,
+                    new_width = int(image_for_display.shape[1] * scale_factor)
+                    new_height = int(image_for_display.shape[0] * scale_factor)
+                    image_for_display = cv2.resize(
+                        image_for_display,
                         (new_width, new_height),
                         interpolation=cv2.INTER_CUBIC,
                     )
-                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                 else:
                     print("Super Resolution is enabled but no valid method selected (SRCNN/Bicubic). No SR applied.")
-                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
-            else: # SR not enabled, ensure normalized_celsius is 3-channel for consistency
-                normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
+            else:
+                image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
 
-            # Save image after SR if debug flag is set
             if self.save_sr_debug_images:
-                cv2.imwrite("sr_after.jpg", normalized_celsius)
+                cv2.imwrite("sr_after.jpg", image_for_display)
                 print("Saved sr_after.jpg")
-                self.save_sr_debug_images = False # Reset flag after saving
+                self.save_sr_debug_images = False
 
-            # Capture min/max values for display
             display_values["agc_min"] = celsius_data.min()
             display_values["agc_max"] = celsius_data.max()
         else:  # Manual AGC
-            # Manual AGC: clip to a user-defined min/max temp range, then normalize.
             clipped_data = np.clip(
                 celsius_data, self.manual_agc_min, self.manual_agc_max
             )
-            # Handle the case where min and max are the same to avoid division by zero.
             if self.manual_agc_max <= self.manual_agc_min:
-                normalized_celsius = np.full_like(clipped_data, 128, dtype=np.uint8)
+                image_for_display = np.full_like(clipped_data, 128, dtype=np.uint8)
             else:
-                # Linearly scale the clipped data to the 0-255 range.
-                normalized_celsius = (
+                image_for_display = (
                     255
                     * (clipped_data - self.manual_agc_min)
                     / (self.manual_agc_max - self.manual_agc_min)
                 ).astype(np.uint8)
 
-            # Apply Super Resolution if enabled and a method is selected
             if self.super_resolution_enabled:
-                # Save image before SR if debug flag is set
                 if self.save_sr_debug_images:
-                    before_sr_image_display = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    before_sr_image_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                     cv2.imwrite("sr_before.jpg", before_sr_image_display)
                     print("Saved sr_before.jpg")
 
                 if self.sr_method == "ESPCN":
                     self._load_espcn_model()
                     if self.sr_net:
-                        input_for_sr = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
-                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False) # 픽셀 값 정규화 및 채널 변경
+                        input_for_sr = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
+                        blob = cv2.dnn.blobFromImage(input_for_sr, 1.0/255.0, (0, 0), (0, 0, 0), True, False)
                         self.sr_net.setInput(blob)
                         
                         super_resolved_output = self.sr_net.forward()
                         print(f"[Debug] super_resolved_output shape: {super_resolved_output.shape}")
                         
                         super_resolved_image = super_resolved_output[0, :, :, :]
-                        # Transpose from (C, H, W) to (H, W, C) for OpenCV
                         super_resolved_image = np.transpose(super_resolved_image, (1, 2, 0))
-                        # Rescale from [0, 1] float to [0, 255] uint8
                         super_resolved_image = np.clip(super_resolved_image * 255, 0, 255).astype(np.uint8)
 
-                        if np.mean(super_resolved_image) < 10: # Threshold for "mostly black"
+                        if np.mean(super_resolved_image) < 10:
                             print("Warning: ESPCN output is mostly black. Falling back to original image.")
-                            normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                            image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                         else:
-                            normalized_celsius = super_resolved_image.copy()
+                            image_for_display = super_resolved_image.copy()
                         
-                        print(f"[Debug] After SR, normalized_celsius shape: {normalized_celsius.shape}, dtype: {normalized_celsius.dtype}")
+                        print(f"[Debug] After SR, image_for_display shape: {image_for_display.shape}, dtype: {image_for_display.dtype}")
                     else:
                         print("ESPCN model not loaded. Cannot apply ESPCN. Falling back to no SR.")
-                        normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                        image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                 elif self.sr_method == "Bicubic":
                     print("Applying bicubic interpolation for Super Resolution.")
                     scale_factor = self.sr_scale_factor
-                    new_width = int(normalized_celsius.shape[1] * scale_factor)
-                    new_height = int(normalized_celsius.shape[0] * scale_factor)
-                    normalized_celsius = cv2.resize(
-                        normalized_celsius,
+                    new_width = int(image_for_display.shape[1] * scale_factor)
+                    new_height = int(image_for_display.shape[0] * scale_factor)
+                    image_for_display = cv2.resize(
+                        image_for_display,
                         (new_width, new_height),
                         interpolation=cv2.INTER_CUBIC,
                     )
-                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
                 else:
                     print("Super Resolution is enabled but no valid method selected (SRCNN/Bicubic). No SR applied.")
-                    normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
-            else: # SR not enabled, ensure normalized_celsius is 3-channel for consistency
-                normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+                    image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
+            else:
+                image_for_display = cv2.cvtColor(image_for_display, cv2.COLOR_GRAY2BGR)
 
-            # Save image after SR if debug flag is set
             if self.save_sr_debug_images:
-                cv2.imwrite("sr_after.jpg", normalized_celsius)
+                cv2.imwrite("sr_after.jpg", image_for_display)
                 print("Saved sr_after.jpg")
-                self.save_sr_debug_images = False # Reset flag after saving
+                self.save_sr_debug_images = False
 
-            # Capture min/max values for display
             display_values["agc_min"] = self.manual_agc_min
             display_values["agc_max"] = self.manual_agc_max
 
-        # Apply Bilateral Filter if enabled
-        if self.bilateral_filter_enabled:
-            # Ensure the image is 8-bit and 3-channel for bilateral filter if it's not already
-            # Bilateral filter works on 8-bit images. If normalized_celsius is float, convert.
-            # If it's 1-channel, convert to 3-channel for consistent processing.
-            if normalized_celsius.dtype != np.uint8:
-                normalized_celsius = normalized_celsius.astype(np.uint8)
-            if len(normalized_celsius.shape) == 2:
-                normalized_celsius = cv2.cvtColor(normalized_celsius, cv2.COLOR_GRAY2BGR)
+        # Create a copy of the image for edge detection processing
+        image_for_edge_detection = image_for_display.copy()
 
-            normalized_celsius = cv2.bilateralFilter(
-                normalized_celsius,
+        # Apply Bilateral Filter if enabled, only to the image used for edge detection
+        if self.bilateral_filter_enabled:
+            if image_for_edge_detection.dtype != np.uint8:
+                image_for_edge_detection = image_for_edge_detection.astype(np.uint8)
+            if len(image_for_edge_detection.shape) == 2:
+                image_for_edge_detection = cv2.cvtColor(image_for_edge_detection, cv2.COLOR_GRAY2BGR)
+
+            image_for_edge_detection = cv2.bilateralFilter(
+                image_for_edge_detection,
                 self.bilateral_d,
                 self.bilateral_sigma_color,
                 self.bilateral_sigma_space,
             )
 
-        colored_image = normalized_celsius
-
         # Apply edge detection if enabled
         if self.edge_detection_enabled:
-            # Determine Canny thresholds based on mode
             if self.edge_mode == "auto":
-                # Auto mode: calculate thresholds based on image median
-                v = np.median(normalized_celsius)
+                v = np.median(image_for_edge_detection)
                 sigma = 0.33
                 lower_current = int(max(0, (1.0 - sigma) * v))
                 upper_current = int(min(255, (1.0 + sigma) * v))
 
-                # Apply Exponential Moving Average (EMA) for smoothing
-                if self.frame_count_for_ema == 0:  # First frame, initialize EMA
+                if self.frame_count_for_ema == 0:
                     self.ema_lower_threshold = float(lower_current)
                     self.ema_upper_threshold = float(upper_current)
                 else:
@@ -468,7 +444,6 @@ class ThermalCam:
 
                 self.frame_count_for_ema += 1
 
-                # Use smoothed thresholds for Canny
                 lower = int(self.ema_lower_threshold)
                 upper = int(self.ema_upper_threshold)
 
@@ -480,51 +455,38 @@ class ThermalCam:
                 display_values["edge_t1"] = lower
                 display_values["edge_t2"] = upper
 
-            # Convert to grayscale for Canny edge detection if it's a 3-channel image
-            if len(normalized_celsius.shape) == 3 and normalized_celsius.shape[2] == 3:
-                gray_for_canny = cv2.cvtColor(normalized_celsius, cv2.COLOR_BGR2GRAY)
+            if len(image_for_edge_detection.shape) == 3 and image_for_edge_detection.shape[2] == 3:
+                gray_for_canny = cv2.cvtColor(image_for_edge_detection, cv2.COLOR_BGR2GRAY)
             else:
-                gray_for_canny = normalized_celsius # Already grayscale or 1-channel
+                gray_for_canny = image_for_edge_detection
 
-            # Apply a small Gaussian blur (3x3 kernel) to suppress noise before Canny.
             blurred_for_canny = cv2.GaussianBlur(gray_for_canny, (3, 3), 0)
 
-            # Apply Canny edge detection
             edges = cv2.Canny(blurred_for_canny, lower, upper)
 
-            # 1. 현재 엣지 픽셀 비율 계산
             current_edge_percentage = np.count_nonzero(edges) / edges.size
 
-            # 2. EMA 임계값 동적 조정
             if current_edge_percentage > self.max_edge_percentage:
-                # 엣지 수가 너무 많으면 임계값 증가 (더 엄격하게)
                 self.ema_lower_threshold += self.threshold_adjustment_step
                 self.ema_upper_threshold += self.threshold_adjustment_step
             elif current_edge_percentage < self.max_edge_percentage / 2:
-                # 엣지 수가 너무 적으면 임계값 감소 (더 많은 엣지 감지)
                 self.ema_lower_threshold -= self.threshold_adjustment_step
                 self.ema_upper_threshold -= self.threshold_adjustment_step
 
-            # 임계값 유효 범위 (0-255) 보장
             self.ema_lower_threshold = max(0, min(255, self.ema_lower_threshold))
             self.ema_upper_threshold = max(0, min(255, self.ema_upper_threshold))
 
-            # 디버깅을 위한 출력
             print(
                 f"Edge Density: {current_edge_percentage:.4f}, Adjusted Canny Thresholds: ({int(self.ema_lower_threshold)}, {int(self.ema_upper_threshold)})"
             )
 
-            # 3. 다음 프레임에 적용 (lower, upper 변수가 이미 EMA 값을 사용하도록 설정되어 있으므로,
-            #    여기서 조정된 self.ema_lower_threshold와 self.ema_upper_threshold가 다음 프레임에 반영됨)
-
-            # Use edges directly for contour finding (thinning removed for performance)
             contours, _ = cv2.findContours(
                 edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
 
-            # Draw contours with anti-aliasing (LINE_AA) to make them appear smoother
+            # Draw contours on the original image_for_display
             cv2.drawContours(
-                colored_image,
+                image_for_display,
                 contours,
                 -1,
                 self.edge_color,
@@ -532,8 +494,33 @@ class ThermalCam:
                 lineType=cv2.LINE_AA,
             )
 
-        print(f"[Debug] Before return, colored_image shape: {colored_image.shape}, dtype: {colored_image.dtype}")
-        return colored_image, display_values
+        if self.unsharp_mask_enabled:
+            image_for_display = self._apply_unsharp_mask(image_for_display)
+
+        print(f"[Debug] Before return, image_for_display shape: {image_for_display.shape}, dtype: {image_for_display.dtype}")
+        return image_for_display, display_values
+
+    def _apply_unsharp_mask(self, image: np.ndarray) -> np.ndarray:
+        if image.dtype != np.uint8:
+            image = image.astype(np.uint8)
+        
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = image
+
+        # Apply Gaussian blur to the grayscale image
+        blurred = cv2.GaussianBlur(gray_image, (0, 0), self.unsharp_mask_radius)
+
+        # Calculate the unsharp mask
+        # The unsharp mask is the original image minus the blurred image
+        unsharp_mask = cv2.addWeighted(gray_image, 1.0 + self.unsharp_mask_amount, blurred, -self.unsharp_mask_amount, 0)
+
+        # Convert the unsharp mask back to BGR if the original image was BGR
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            unsharp_mask = cv2.cvtColor(unsharp_mask, cv2.COLOR_GRAY2BGR)
+        
+        return unsharp_mask
 
     async def get_thermal_image(self):
         print("\nAttempting to get thermal image...")

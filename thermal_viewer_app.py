@@ -93,6 +93,26 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_sigma_space_spinbox.setMaximum(200)
         self.bilateral_sigma_space_spinbox.setValue(75) # Default value
 
+        # Unsharp Mask controls
+        self.unsharp_masking_button.setCheckable(True)
+        self.unsharp_masking_button.setChecked(False)
+        self.unsharp_masking_button.setText("Unsharp Mask Off")
+
+        self.unsharp_radius_slider.setMinimum(1)
+        self.unsharp_radius_slider.setMaximum(100)
+        self.unsharp_radius_slider.setValue(self.thermal_cam.unsharp_mask_radius)
+        self.unsharp_radius_spinbox.setMinimum(1)
+        self.unsharp_radius_spinbox.setMaximum(100)
+        self.unsharp_radius_spinbox.setValue(self.thermal_cam.unsharp_mask_radius)
+
+        self.unsharp_amount_slider.setMinimum(0)
+        self.unsharp_amount_slider.setMaximum(300) # Represents 0.00 to 3.00
+        self.unsharp_amount_slider.setValue(int(self.thermal_cam.unsharp_mask_amount * 100))
+        self.unsharp_amount_spinbox.setMinimum(0.00)
+        self.unsharp_amount_spinbox.setMaximum(3.00)
+        self.unsharp_amount_spinbox.setSingleStep(0.01)
+        self.unsharp_amount_spinbox.setValue(self.thermal_cam.unsharp_mask_amount)
+
         self._update_ui_state()
 
     def _connect_signals(self):
@@ -138,23 +158,33 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_sigma_space_slider.valueChanged.connect(self.update_bilateral_sigma_space)
         self.bilateral_sigma_space_spinbox.valueChanged.connect(self.update_bilateral_sigma_space)
 
+        # Unsharp Mask controls
+        self.unsharp_masking_button.clicked.connect(self.toggle_unsharp_mask)
+        self.unsharp_radius_slider.valueChanged.connect(self.update_unsharp_radius)
+        self.unsharp_radius_spinbox.valueChanged.connect(self.update_unsharp_radius)
+        self.unsharp_amount_slider.valueChanged.connect(self.update_unsharp_amount)
+        self.unsharp_amount_spinbox.valueChanged.connect(self.update_unsharp_amount)
+
         # Main update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_image_display)
         self.update_timer.start(50)
 
         # Status bar messages for sliders
-        self.t1_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("Canny 엣지 감지 하위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
-        self.t2_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("Canny 엣지 감지 상위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
-        self.edge_thickness_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("엣지 두께: 엣지 선의 두께를 조절합니다. 값이 클수록 선이 두꺼워집니다."))
-        self.agc_min_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("수동 AGC 최소 온도: 이 온도 이하의 픽셀은 검은색에 가깝게 표시됩니다."))
-        self.agc_max_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("수동 AGC 최대 온도: 이 온도 이상의 픽셀은 흰색에 가깝게 표시됩니다."))
-        self.ema_alpha_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("EMA 알파 값 (엣지 감지 평활화): 값이 낮을수록 엣지 감지 임계값 변화가 부드러워집니다."))
-        self.max_edge_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("최대 엣지 픽셀 비율: 화면에 표시될 엣지 픽셀의 최대 비율을 설정합니다. 이 비율을 초과하면 엣지 감지 임계값이 자동으로 높아집니다."))
-        self.threshold_adjustment_step_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("임계값 조정 단계: 자동 엣지 감지 시 임계값이 한 번에 조정되는 폭을 설정합니다."))
-        self.bilateral_d_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 직경 (d): 필터링에 사용되는 주변 픽셀의 크기입니다. 값이 클수록 더 넓은 영역의 노이즈가 제거되지만, 엣지가 약간 흐려질 수 있습니다."))
-        self.bilateral_sigma_color_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 색상 시그마 (sigmaColor): 색상(온도) 유사성 기준입니다. 값이 클수록 색상 차이가 큰 픽셀도 노이즈로 간주하여 제거합니다. 엣지 보존에 영향을 줍니다."))
-        self.bilateral_sigma_space_slider.valueChanged.connect(lambda value: self._show_message_in_statusbar("양방향 필터 공간 시그마 (sigmaSpace): 공간적 거리 기준입니다. 값이 클수록 멀리 떨어진 픽셀도 필터링에 영향을 줍니다. 이미지가 더 부드러워집니다."))
+        # Status bar messages for sliders
+        self.t1_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("Canny 엣지 감지 하위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
+        self.t2_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("Canny 엣지 감지 상위 임계값: 이 값을 높이면 더 강한 엣지만 감지됩니다."))
+        self.edge_thickness_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("엣지 두께: 엣지 선의 두께를 조절합니다. 값이 클수록 선이 두꺼워집니다."))
+        self.agc_min_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("수동 AGC 최소 온도: 이 온도 이하의 픽셀은 검은색에 가깝게 표시됩니다."))
+        self.agc_max_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("수동 AGC 최대 온도: 이 온도 이상의 픽셀은 흰색에 가깝게 표시됩니다."))
+        self.ema_alpha_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("EMA 알파 값 (엣지 감지 평활화): 값이 낮을수록 엣지 감지 임계값 변화가 부드러워집니다."))
+        self.max_edge_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("최대 엣지 픽셀 비율: 화면에 표시될 엣지 픽셀의 최대 비율을 설정합니다. 이 비율을 초과하면 엣지 감지 임계값이 자동으로 높아집니다."))
+        self.threshold_adjustment_step_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("임계값 조정 단계: 자동 엣지 감지 시 임계값이 한 번에 조정되는 폭을 설정합니다."))
+        self.bilateral_d_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("양방향 필터 직경 (d): 필터링에 사용되는 주변 픽셀의 크기입니다. 값이 클수록 더 넓은 영역의 노이즈가 제거되지만, 엣지가 약간 흐려질 수 있습니다."))
+        self.bilateral_sigma_color_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("양방향 필터 색상 시그마 (sigmaColor): 색상(온도) 유사성 기준입니다. 값이 클수록 색상 차이가 큰 픽셀도 노이즈로 간주하여 제거합니다. 엣지 보존에 영향을 줍니다."))
+        self.bilateral_sigma_space_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("양방향 필터 공간 시그마 (sigmaSpace): 공간적 거리 기준입니다. 값이 클수록 멀리 떨어진 픽셀도 필터링에 영향을 줍니다. 이미지가 더 부드러워집니다."))
+        self.unsharp_radius_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("언샤프 마스크 반경 (Radius/Sigma): 블러 필터의 크기를 결정합니다. 값이 클수록 더 넓은 영역의 디테일이 강조됩니다."))
+        self.unsharp_amount_slider.valueChanged.connect(lambda: self._show_message_in_statusbar("언샤프 마스크 양 (Amount): 원본 이미지와 블러 처리된 이미지의 차이를 얼마나 적용할지 결정합니다. 값이 클수록 선명도가 강해집니다."))
     # endregion
 
     # region Connection Management
@@ -292,6 +322,16 @@ class ThermalViewerApp(QMainWindow):
         self.bilateral_sigma_space_slider.setEnabled(bilateral_controls_enabled)
         self.bilateral_sigma_space_spinbox.setEnabled(bilateral_controls_enabled)
 
+        # Unsharp Mask controls
+        unsharp_mask_on = self.unsharp_masking_button.isChecked()
+        unsharp_mask_controls_enabled = unsharp_mask_on and is_connected
+        self.unsharp_radius_label.setEnabled(unsharp_mask_controls_enabled)
+        self.unsharp_radius_slider.setEnabled(unsharp_mask_controls_enabled)
+        self.unsharp_radius_spinbox.setEnabled(unsharp_mask_controls_enabled)
+        self.unsharp_amount_label.setEnabled(unsharp_mask_controls_enabled)
+        self.unsharp_amount_slider.setEnabled(unsharp_mask_controls_enabled)
+        self.unsharp_amount_spinbox.setEnabled(unsharp_mask_controls_enabled)
+
     # endregion
 
     # region Control Handlers
@@ -423,6 +463,23 @@ class ThermalViewerApp(QMainWindow):
         self.thermal_cam.bilateral_sigma_space = value
         self.bilateral_sigma_space_label.setText(f"Sigma Space: {value}")
         self._synchronize_widget_value(value, [self.bilateral_sigma_space_slider, self.bilateral_sigma_space_spinbox])
+
+    def toggle_unsharp_mask(self, checked):
+        self.thermal_cam.unsharp_mask_enabled = checked
+        self.unsharp_masking_button.setText("Unsharp Mask On" if checked else "Unsharp Mask Off")
+        self._update_ui_state()
+
+    def update_unsharp_radius(self, value):
+        self.thermal_cam.unsharp_mask_radius = value
+        self.unsharp_radius_label.setText(f"Radius/Sigma: {value}")
+        self._synchronize_widget_value(value, [self.unsharp_radius_slider, self.unsharp_radius_spinbox])
+
+    def update_unsharp_amount(self, value):
+        if isinstance(value, int):
+            value = value / 100.0
+        self.thermal_cam.unsharp_mask_amount = value
+        self.unsharp_amount_label.setText(f"Mask Amount: {value:.2f}")
+        self._synchronize_widget_value(value, [self.unsharp_amount_slider, self.unsharp_amount_spinbox], is_float=True, multiplier=100)
 
     # endregion
 
